@@ -48,7 +48,15 @@ const WelcomeModal = () => {
   return (
     <div className="lumi-shell fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/65 p-4 backdrop-blur-sm">
       <div className="lumi-panel my-auto w-full max-w-3xl overflow-hidden rounded-3xl border shadow-2xl">
-        <div className="lumi-gradient-button p-6 text-center sm:p-8">
+        <div className="lumi-gradient-button relative p-6 text-center sm:p-8">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => void finish()}
+            className="absolute right-4 top-4 rounded-lg bg-black/15 px-3 py-2 text-xs font-semibold text-white/85 transition hover:bg-black/25 disabled:opacity-60"
+          >
+            Пропустить
+          </button>
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15">
             <Icon className="h-7 w-7" />
           </div>

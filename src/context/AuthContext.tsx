@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
+import { isExistingEmailSignUp } from '../lib/authGuards'
 import type { ThemeId } from './ThemeContext'
 
 export type IconSize = 'compact' | 'comfortable' | 'large'
@@ -73,6 +74,24 @@ const defaultNotificationPreferences: NotificationPreferences = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+const onboardingStorageKey = (userId: string) => `lumicrm-onboarding-completed:${userId}`
+
+const hasLocalOnboardingCompletion = (userId: string) => {
+  try {
+    return window.localStorage.getItem(onboardingStorageKey(userId)) === 'true'
+  } catch {
+    return false
+  }
+}
+
+const saveLocalOnboardingCompletion = (userId: string) => {
+  try {
+    window.localStorage.setItem(onboardingStorageKey(userId), 'true')
+  } catch {
+    // The cloud value remains authoritative when browser storage is unavailable.
+  }
+}
+
 const normalizePreferences = (value: unknown): UiPreferences => {
   const source = value && typeof value === 'object' ? value as Partial<UiPreferences> : {}
   return { ...defaultPreferences, ...source }
@@ -130,7 +149,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       .maybeSingle()
 
     if (profileError) console.error('Failed to load LumiCRM profile:', profileError)
-    setUser(mapSupabaseUser(source, profile as Record<string, unknown> | null))
+    const mappedUser = mapSupabaseUser(source, profile as Record<string, unknown> | null)
+    if (hasLocalOnboardingCompletion(source.id)) mappedUser.onboardingCompleted = true
+    setUser(mappedUser)
   }
 
   useEffect(() => {
@@ -203,6 +224,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     if (signUpError) {
       setError(authErrorMessage(signUpError.message))
+      return { success: false, requiresEmailConfirmation: false }
+    }
+
+    // Supabase intentionally returns a successful-looking response for an
+    // already registered email. An empty identities array is the supported
+    // signal that no new account (and therefore no confirmation email) was made.
+    if (isExistingEmailSignUp(data.user)) {
+      setError('Аккаунт с такой почтой уже существует. Войдите или восстановите пароль.')
       return { success: false, requiresEmailConfirmation: false }
     }
 
@@ -286,9 +315,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       .eq('id', user.id)
     if (updateError) {
       console.error('Failed to complete onboarding:', updateError)
-      setError('Не удалось сохранить прохождение обучения')
-      return false
+      // Onboarding must never lock a user out of the CRM. Keep a local marker
+      // and retry the cloud state naturally on the next successful completion.
+      saveLocalOnboardingCompletion(user.id)
+      setUser(previous => previous ? { ...previous, onboardingCompleted: true } : null)
+      return true
     }
+    saveLocalOnboardingCompletion(user.id)
     setUser(previous => previous ? { ...previous, onboardingCompleted: true } : null)
     return true
   }

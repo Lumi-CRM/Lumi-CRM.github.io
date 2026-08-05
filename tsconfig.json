@@ -18,6 +18,7 @@
   },
   "include": ["src"],
   "exclude": [
+    "src/**/*.test.ts",
     "src/data/mockData.ts",
     "src/pages/BuyerRequestsPage.tsx",
     "src/pages/SellerPropertiesPage.tsx",
