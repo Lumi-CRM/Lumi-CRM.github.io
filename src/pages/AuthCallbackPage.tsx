@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { CheckCircle2, LoaderCircle, XCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { parseAuthCallbackCredentials } from '../lib/authCallback'
 import logoLight from '../assets/logo-light.png'
 
 const AuthCallbackPage = () => {
@@ -12,8 +13,22 @@ const AuthCallbackPage = () => {
     let active = true
 
     const confirmEmail = async () => {
+      const credentials = parseAuthCallbackCredentials(window.location.hash)
+      if (credentials) {
+        const { error } = await supabase.auth.setSession({
+          access_token: credentials.accessToken,
+          refresh_token: credentials.refreshToken,
+        })
+        if (error) {
+          if (active) setStatus('error')
+          return
+        }
+        // Tokens must not remain visible in the address bar or browser history.
+        window.history.replaceState({}, document.title, window.location.pathname)
+      }
+
       const code = new URLSearchParams(window.location.search).get('code')
-      if (code) {
+      if (!credentials && code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code)
         if (error) {
           if (active) setStatus('error')
