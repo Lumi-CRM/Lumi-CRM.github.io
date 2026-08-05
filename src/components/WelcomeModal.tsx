@@ -1,0 +1,100 @@
+import { useState } from 'react'
+import { BellRing, Building2, Check, ChevronLeft, ChevronRight, LayoutDashboard, Palette, ShieldCheck, Users } from 'lucide-react'
+import { useAuth } from '../context/AuthContext'
+
+const steps = [
+  {
+    icon: LayoutDashboard,
+    title: 'Вся работа — в одном офисе',
+    text: 'Объекты, клиенты, задачи, встречи, документы и аналитика синхронизируются между вашими устройствами.',
+    points: ['Добавляйте собственников и покупателей', 'Связывайте объекты, файлы и историю контактов', 'Следите за ближайшими делами на дашборде'],
+  },
+  {
+    icon: Building2,
+    title: 'Начните с базы',
+    text: 'Создайте первый объект или контакт. LumiCRM сохранит принадлежность данных вашему аккаунту.',
+    points: ['Объекты появляются сверху списка', 'Избранное и архив доступны на всех устройствах', 'Фото и документы хранятся в защищённом облаке'],
+  },
+  {
+    icon: Palette,
+    title: 'Настройте LumiCRM под себя',
+    text: 'Выберите тему, плотность интерфейса, размер значков и положение навигации в разделе «Настройки».',
+    points: ['Пять цветовых тем', 'Компактный и просторный режимы', 'Навигация слева или справа'],
+  },
+  {
+    icon: BellRing,
+    title: 'Не пропускайте важное',
+    text: 'Разрешите уведомления на каждом нужном устройстве. Настроить их можно позже в любой момент.',
+    points: ['Напоминания о задачах и встречах', 'Уведомления о новых заявках', 'Единый центр уведомлений'],
+  },
+]
+
+const WelcomeModal = () => {
+  const { user, completeOnboarding } = useAuth()
+  const [step, setStep] = useState(0)
+  const [saving, setSaving] = useState(false)
+
+  if (!user || user.onboardingCompleted) return null
+
+  const current = steps[step]
+  const Icon = current.icon
+
+  const finish = async () => {
+    setSaving(true)
+    await completeOnboarding()
+    setSaving(false)
+  }
+
+  return (
+    <div className="lumi-shell fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/65 p-4 backdrop-blur-sm">
+      <div className="lumi-panel my-auto w-full max-w-3xl overflow-hidden rounded-3xl border shadow-2xl">
+        <div className="lumi-gradient-button p-6 text-center sm:p-8">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15">
+            <Icon className="h-7 w-7" />
+          </div>
+          <p className="mt-4 text-sm font-medium text-white/75">Шаг {step + 1} из {steps.length}</p>
+          <h1 className="mt-2 text-2xl font-bold sm:text-3xl">{current.title}</h1>
+          <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-white/80 sm:text-base">{current.text}</p>
+        </div>
+
+        <div className="p-6 sm:p-8">
+          <div className="grid gap-3 sm:grid-cols-3">
+            {current.points.map(point => (
+              <div key={point} className="lumi-panel-muted rounded-2xl border p-4">
+                <Check className="lumi-accent-text mb-3 h-5 w-5" />
+                <p className="lumi-muted-strong text-sm leading-5">{point}</p>
+              </div>
+            ))}
+          </div>
+
+          {step === 0 && (
+            <div className="lumi-accent-soft mt-5 flex items-start gap-3 rounded-2xl p-4">
+              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0" />
+              <p className="text-sm leading-6">Ваши записи защищены правилами доступа Supabase: каждый пользователь видит только данные своего офиса.</p>
+            </div>
+          )}
+
+          <div className="mt-7 flex items-center justify-between gap-3">
+            <button type="button" disabled={step === 0} onClick={() => setStep(value => value - 1)} className="lumi-control inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold disabled:invisible">
+              <ChevronLeft className="h-4 w-4" /> Назад
+            </button>
+            <div className="flex gap-2">
+              {steps.map((_, index) => <span key={index} className={`h-2 rounded-full transition-all ${index === step ? 'lumi-accent-bg w-7' : 'lumi-control w-2'}`} />)}
+            </div>
+            {step < steps.length - 1 ? (
+              <button type="button" onClick={() => setStep(value => value + 1)} className="lumi-gradient-button inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold">
+                Далее <ChevronRight className="h-4 w-4" />
+              </button>
+            ) : (
+              <button type="button" disabled={saving} onClick={() => void finish()} className="lumi-gradient-button inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold disabled:opacity-60">
+                <Users className="h-4 w-4" /> {saving ? 'Сохраняем…' : 'Начать работу'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default WelcomeModal

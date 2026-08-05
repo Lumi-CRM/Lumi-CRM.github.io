@@ -1,0 +1,51 @@
+{
+  "name": "LumiCRM — облачный офис",
+  "short_name": "LumiCRM",
+  "description": "Облачная CRM для специалистов и команд по недвижимости",
+  "lang": "ru",
+  "start_url": "/",
+  "id": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "orientation": "any",
+  "background_color": "#070b14",
+  "theme_color": "#070b14",
+  "categories": ["business", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Рабочий стол",
+      "short_name": "Рабочий стол",
+      "url": "/"
+    },
+    {
+      "name": "Объекты",
+      "short_name": "Объекты",
+      "url": "/properties"
+    },
+    {
+      "name": "Контакты",
+      "short_name": "Контакты",
+      "url": "/owners"
+    },
+    {
+      "name": "Задачи",
+      "short_name": "Задачи",
+      "url": "/tasks"
+    }
+  ],
+  "icons": [
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any monochrome"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

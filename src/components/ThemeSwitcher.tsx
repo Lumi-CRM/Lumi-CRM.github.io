@@ -1,0 +1,81 @@
+import { useEffect, useRef, useState } from 'react'
+import { Check, Palette } from 'lucide-react'
+import { themeOptions, useTheme } from '../context/ThemeContext'
+import { useAuth } from '../context/AuthContext'
+
+interface ThemeSwitcherProps {
+  align?: 'left' | 'right'
+  showLabel?: boolean
+}
+
+const ThemeSwitcher = ({ align = 'right', showLabel = false }: ThemeSwitcherProps) => {
+  const { theme, setTheme } = useTheme()
+  const { user, updatePreferences } = useAuth()
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [])
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(value => !value)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label="Выбрать тему"
+        className="lumi-control inline-flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition"
+      >
+        <Palette className="h-5 w-5" />
+        {showLabel && <span className="hidden sm:inline">{theme.name}</span>}
+      </button>
+
+      {open && (
+        <div
+          role="menu"
+          className={`lumi-theme-menu absolute top-full z-50 mt-2 w-80 rounded-2xl p-2 ${align === 'right' ? 'right-0' : 'left-0'}`}
+        >
+          <div className="px-3 pb-2 pt-1">
+            <p className="lumi-text text-sm font-semibold">Оформление офиса</p>
+            <p className="lumi-muted mt-0.5 text-xs">{user ? 'Выбор сохраняется в вашем профиле' : 'Выбор сохранится на этом устройстве'}</p>
+          </div>
+          <div className="space-y-1">
+            {themeOptions.map(option => (
+              <button
+                key={option.id}
+                type="button"
+                role="menuitemradio"
+                aria-checked={theme.id === option.id}
+                onClick={() => {
+                  setTheme(option.id)
+                  if (user) void updatePreferences({ theme: option.id })
+                  setOpen(false)
+                }}
+                className="lumi-theme-option flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition"
+              >
+                <span className="flex shrink-0 overflow-hidden rounded-full border border-black/10 shadow-sm">
+                  {option.swatches.map(color => (
+                    <span key={color} className="h-7 w-3" style={{ backgroundColor: color }} />
+                  ))}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="lumi-text block text-sm font-medium">{option.name}</span>
+                  <span className="lumi-muted mt-0.5 block truncate text-xs">{option.description}</span>
+                </span>
+                {theme.id === option.id && <Check className="lumi-accent-text h-4 w-4 shrink-0" />}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default ThemeSwitcher

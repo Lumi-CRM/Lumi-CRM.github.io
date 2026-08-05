@@ -1,0 +1,461 @@
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import {
+  AlertCircle,
+  Archive,
+  BriefcaseBusiness,
+  Building2,
+  Calendar,
+  CalendarDays,
+  CheckCircle2,
+  CheckSquare,
+  FileText,
+  Heart,
+  Home,
+  Image,
+  LogOut,
+  Phone,
+  RefreshCw,
+  Search,
+  Settings,
+  Star,
+  Users,
+} from 'lucide-react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
+import {
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import { useAuth } from '../context/AuthContext'
+import { completeOverviewItem } from '../lib/crm'
+import { useCrmOverview } from '../hooks/useCrmOverview'
+import logoLight from '../assets/logo-light.png'
+import ThemeSwitcher from '../components/ThemeSwitcher'
+import InstallAppButton from '../components/InstallAppButton'
+import { useTheme } from '../context/ThemeContext'
+import NotificationCenter from '../components/NotificationCenter'
+
+interface DashboardProps {
+  children?: ReactNode
+}
+
+const menuItems = [
+  { id: '/', icon: Home, label: 'Главная' },
+  { id: '/properties', icon: Building2, label: 'Объекты' },
+  { id: '/owners', icon: Users, label: 'Собственники' },
+  { id: '/landlords', icon: Building2, label: 'Арендодатели' },
+  { id: '/buyers', icon: Heart, label: 'Покупатели' },
+  { id: '/tenants', icon: Users, label: 'Арендаторы' },
+  { id: '/calendar', icon: Calendar, label: 'Календарь' },
+  { id: '/tasks', icon: CheckSquare, label: 'Задачи' },
+  { id: '/deals', icon: BriefcaseBusiness, label: 'Сделки' },
+  { id: '/documents', icon: FileText, label: 'Документы' },
+  { id: '/gallery', icon: Image, label: 'Галерея' },
+  { id: '/favorites', icon: Star, label: 'Избранное' },
+  { id: '/archive', icon: Archive, label: 'Архив' },
+  { id: '/settings', icon: Settings, label: 'Настройки' },
+]
+
+const formatDate = (value?: string) => {
+  if (!value) return 'Без срока'
+  const date = new Date(`${value}T00:00:00`)
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleDateString('ru-RU', { day: '2-digit', month: 'short' })
+}
+
+const Dashboard = ({ children }: DashboardProps) => {
+  const { user, logout } = useAuth()
+  const { theme, setTheme } = useTheme()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const isHome = location.pathname === '/'
+  const { data, loading, error, reload } = useCrmOverview(isHome)
+  const [completingId, setCompletingId] = useState<string | null>(null)
+  const [dashboardMode, setDashboardMode] = useState<'sale' | 'rent' | 'mortgage'>('sale')
+
+  useEffect(() => {
+    if (user?.preferences.theme && user.preferences.theme !== theme.id) setTheme(user.preferences.theme)
+  }, [setTheme, theme.id, user?.preferences.theme])
+
+  const agenda = useMemo(() => {
+    const tasks = data.tasks.map(task => ({
+      id: task.id,
+      kind: 'task' as const,
+      title: task.title,
+      date: task.dueDate,
+      subtitle: task.priority === 'high' ? 'Высокий приоритет' : 'Задача',
+    }))
+    const events = data.events.map(event => ({
+      id: event.id,
+      kind: 'event' as const,
+      eventType: event.type,
+      title: event.title,
+      date: event.eventDate,
+      subtitle: event.eventTime
+        ? `${event.type === 'call' ? 'Звонок' : 'Встреча'} в ${event.eventTime.slice(0, 5)}`
+        : event.type === 'call' ? 'Звонок' : 'Встреча',
+    }))
+
+    return [...tasks, ...events]
+      .sort((a, b) => (a.date ?? '9999-12-31').localeCompare(b.date ?? '9999-12-31'))
+      .slice(0, 8)
+  }, [data.events, data.tasks])
+
+  const handleLogout = async () => {
+    await logout()
+    navigate('/login')
+  }
+
+  const handleComplete = async (kind: 'task' | 'event', id: string) => {
+    setCompletingId(id)
+    try {
+      await completeOverviewItem(kind, id)
+      await reload()
+    } finally {
+      setCompletingId(null)
+    }
+  }
+
+  const isActive = (path: string) => path === '/'
+    ? location.pathname === '/'
+    : location.pathname.startsWith(path)
+
+  const stats = [
+    { label: 'Собственники', value: data.owners, icon: Users, color: 'from-blue-500 to-cyan-500' },
+    { label: 'Покупатели', value: data.buyers, icon: Heart, color: 'from-pink-500 to-rose-500' },
+    { label: 'Объекты', value: data.properties, icon: Building2, color: 'from-violet-500 to-purple-500' },
+    { label: 'Активные сделки', value: data.activeDeals, icon: BriefcaseBusiness, color: 'from-amber-500 to-orange-500' },
+  ]
+
+  const chartConfig = {
+    sale: { firstKey: 'sellers', secondKey: 'buyers', firstLabel: 'Собственники', secondLabel: 'Покупатели', firstColor: '#f43f5e', secondColor: '#22c55e' },
+    rent: { firstKey: 'landlords', secondKey: 'tenants', firstLabel: 'Арендодатели', secondLabel: 'Арендаторы', firstColor: '#8b5cf6', secondColor: '#06b6d4' },
+    mortgage: { firstKey: 'mortgageLeads', secondKey: 'buyers', firstLabel: 'Ипотечные заявки', secondLabel: 'Все покупатели', firstColor: '#f59e0b', secondColor: '#22c55e' },
+  }[dashboardMode]
+  const currentAnalytics = data.analytics.months[data.analytics.months.length - 1]
+  const currentContacts = currentAnalytics
+    ? Number(currentAnalytics[chartConfig.firstKey as keyof typeof currentAnalytics]) + Number(currentAnalytics[chartConfig.secondKey as keyof typeof currentAnalytics])
+    : 0
+  const currentObjects = currentAnalytics
+    ? dashboardMode === 'rent' ? currentAnalytics.rentProperties : currentAnalytics.saleProperties
+    : 0
+  const pieColors = ['#ec4899', '#8b5cf6', '#3b82f6', '#06b6d4', '#f59e0b', '#22c55e']
+
+  const renderHome = () => (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="lumi-accent-text mb-1 text-sm font-medium">Облачный офис LumiCRM</p>
+          <h1 className="lumi-text text-3xl font-bold">
+            Добро пожаловать, {user?.firstName || 'в ваш офис'}
+          </h1>
+          <p className="lumi-muted mt-2">Все клиенты, задачи и события загружаются из Supabase.</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void reload()}
+          disabled={loading}
+          className="lumi-control inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition disabled:opacity-50"
+        >
+          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          Обновить
+        </button>
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-3 rounded-2xl border border-red-900/60 bg-red-950/30 p-4 text-red-200">
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-medium">Данные временно недоступны</p>
+            <p className="mt-1 text-sm text-red-300/80">{error}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {stats.map((stat, index) => {
+          const Icon = stat.icon
+          return (
+            <motion.div
+              key={stat.label}
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.05 }}
+              className="lumi-panel rounded-2xl border p-5"
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="lumi-muted text-sm">{stat.label}</p>
+                  <p className="lumi-text mt-2 text-3xl font-bold">{loading ? '—' : stat.value}</p>
+                </div>
+                <div className={`rounded-2xl bg-gradient-to-br ${stat.color} p-3`}>
+                  <Icon className="h-6 w-6 text-white" />
+                </div>
+              </div>
+            </motion.div>
+          )
+        })}
+      </div>
+
+      <section className="lumi-panel overflow-hidden rounded-2xl border">
+        <div className="lumi-border flex flex-col border-b sm:flex-row">
+          {([
+            ['sale', 'Купля-продажа'],
+            ['rent', 'Аренда'],
+            ['mortgage', 'Заявки на ипотеку'],
+          ] as const).map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setDashboardMode(mode)}
+              className={`px-6 py-4 text-sm font-semibold uppercase tracking-wide transition ${dashboardMode === mode ? 'lumi-accent-bg' : 'lumi-nav-item'}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="lumi-kpi-grid grid grid-cols-2 gap-px lg:grid-cols-4">
+          {[
+            ['Новые контакты за месяц', currentContacts],
+            ['Новые объекты за месяц', currentObjects],
+            ['Активные сделки', data.activeDeals],
+            ['Объём сделок', `${data.analytics.totalDealVolume.toLocaleString('ru-RU')} ₽`],
+          ].map(([label, value]) => (
+            <div key={String(label)} className="px-5 py-4">
+              <p className="lumi-muted text-xs uppercase tracking-wide">{label}</p>
+              <p className="lumi-text mt-2 text-2xl font-semibold">{value}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-1 gap-6 p-5 xl:grid-cols-3">
+          <div className="lumi-panel-muted rounded-2xl border p-5 xl:col-span-2">
+            <div className="mb-4">
+              <h3 className="lumi-text font-semibold">Динамика базы за 12 месяцев</h3>
+              <p className="lumi-muted mt-1 text-sm">{chartConfig.firstLabel} и {chartConfig.secondLabel.toLowerCase()}</p>
+            </div>
+            <div className="h-72">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={data.analytics.months} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid stroke="var(--lumi-chart-grid)" strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" stroke="var(--lumi-muted)" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis stroke="var(--lumi-muted)" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <Tooltip contentStyle={{ background: 'var(--lumi-panel)', border: '1px solid var(--lumi-border)', borderRadius: 12, color: 'var(--lumi-text)' }} labelStyle={{ color: 'var(--lumi-text)' }} />
+                  <Line type="monotone" dataKey={chartConfig.firstKey} name={chartConfig.firstLabel} stroke={chartConfig.firstColor} strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey={chartConfig.secondKey} name={chartConfig.secondLabel} stroke={chartConfig.secondColor} strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="lumi-panel-muted rounded-2xl border p-5">
+            <h3 className="lumi-text font-semibold">Объекты по типам</h3>
+            <p className="lumi-muted mt-1 text-sm">Структура текущей базы</p>
+            <div className="h-52">
+              {data.analytics.propertyTypes.length ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={data.analytics.propertyTypes} dataKey="value" nameKey="name" innerRadius={55} outerRadius={82} paddingAngle={3}>
+                      {data.analytics.propertyTypes.map((item, index) => <Cell key={item.name} fill={pieColors[index % pieColors.length]} />)}
+                    </Pie>
+                    <Tooltip contentStyle={{ background: 'var(--lumi-panel)', border: '1px solid var(--lumi-border)', borderRadius: 12, color: 'var(--lumi-text)' }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : <div className="lumi-muted flex h-full items-center justify-center text-sm">Данные появятся после импорта</div>}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              {data.analytics.propertyTypes.slice(0, 6).map((item, index) => (
+                <div key={item.name} className="lumi-muted flex items-center gap-2 text-xs">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: pieColors[index % pieColors.length] }} />
+                  <span className="truncate">{item.name}: {item.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <section className="lumi-panel rounded-2xl border p-6 xl:col-span-2">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <h2 className="lumi-text text-xl font-semibold">Ближайшие дела</h2>
+              <p className="lumi-muted mt-1 text-sm">Задачи, звонки и встречи в одной ленте</p>
+            </div>
+            <Link to="/calendar" className="lumi-accent-text text-sm font-medium">К календарю</Link>
+          </div>
+
+          <div className="space-y-3">
+            {!loading && agenda.length === 0 && (
+              <div className="lumi-border lumi-muted rounded-xl border border-dashed py-10 text-center">
+                Ближайших дел пока нет
+              </div>
+            )}
+            {agenda.map(item => {
+              const Icon = item.kind === 'task'
+                ? CheckSquare
+                : item.eventType === 'call' ? Phone : CalendarDays
+              return (
+                <div key={`${item.kind}-${item.id}`} className="lumi-panel-muted flex items-center gap-4 rounded-xl border p-4">
+                  <div className="lumi-accent-soft rounded-xl p-2.5">
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="lumi-text truncate font-medium">{item.title}</p>
+                    <p className="lumi-muted mt-1 text-sm">{item.subtitle} · {formatDate(item.date)}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleComplete(item.kind, item.id)}
+                    disabled={completingId === item.id}
+                    title="Отметить выполненным"
+                    className="rounded-lg p-2 text-gray-500 transition hover:bg-emerald-500/10 hover:text-emerald-400 disabled:opacity-50"
+                  >
+                    <CheckCircle2 className="h-5 w-5" />
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </section>
+
+        <section className="lumi-panel rounded-2xl border p-6">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <h2 className="lumi-text text-xl font-semibold">Новые объекты</h2>
+              <p className="lumi-muted mt-1 text-sm">Последние записи базы</p>
+            </div>
+            <Link to="/properties" className="lumi-accent-text text-sm font-medium">Все</Link>
+          </div>
+          <div className="space-y-3">
+            {!loading && data.recentProperties.length === 0 && (
+              <div className="lumi-border lumi-muted rounded-xl border border-dashed py-10 text-center">
+                Объектов пока нет
+              </div>
+            )}
+            {data.recentProperties.map(property => (
+              <button
+                type="button"
+                key={property.id}
+                onClick={() => navigate(`/properties/${property.id}`)}
+                className="lumi-panel-muted w-full rounded-xl border p-4 text-left transition"
+              >
+                <p className="lumi-text truncate font-medium">{property.address}</p>
+                <div className="mt-2 flex items-center justify-between text-sm">
+                  <span className="lumi-muted">{property.status}</span>
+                  <span className="lumi-muted-strong font-medium">
+                    {property.price ? `${property.price.toLocaleString('ru-RU')} ₽` : 'Цена не указана'}
+                  </span>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="lumi-shell flex h-screen">
+      <aside
+        className={`lumi-sidebar hidden shrink-0 flex-col md:flex ${user?.preferences.navigationPosition === 'right' ? 'order-2 border-l' : 'order-1 border-r'}`}
+        style={{ width: user?.preferences.density === 'compact' ? '14rem' : user?.preferences.density === 'spacious' ? '18rem' : '16rem' }}
+      >
+        <div className="p-6">
+          <Link to="/" className="flex items-center gap-3">
+            <img src={logoLight} alt="LumiCRM" className="lumi-logo h-8 w-auto object-contain" />
+          </Link>
+          <p className="lumi-muted mt-3 text-xs uppercase tracking-[0.18em]">Облачная CRM для недвижимости</p>
+        </div>
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-4">
+          {menuItems.map(item => {
+            const Icon = item.icon
+            const active = isActive(item.id)
+            return (
+              <button
+                type="button"
+                key={item.id}
+                onClick={() => navigate(item.id)}
+                className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-left text-sm transition ${
+                  active
+                    ? 'lumi-nav-item-active font-medium'
+                    : 'lumi-nav-item'
+                }`}
+              >
+                <Icon className="shrink-0" style={{ width: 'var(--lumi-nav-icon-size)', height: 'var(--lumi-nav-icon-size)' }} />
+                <span>{item.label}</span>
+              </button>
+            )
+          })}
+        </nav>
+        <div className="lumi-border border-t p-4">
+          <button
+            type="button"
+            onClick={() => void handleLogout()}
+            className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm text-red-400 transition hover:bg-red-500/10"
+          >
+            <LogOut className="h-5 w-5" />
+            Выйти
+          </button>
+        </div>
+      </aside>
+
+      <main className={`flex min-w-0 flex-1 flex-col overflow-hidden ${user?.preferences.navigationPosition === 'right' ? 'order-1' : 'order-2'}`}>
+        <header className="lumi-header relative z-[60] flex items-center justify-between border-b px-4 py-4 backdrop-blur md:px-8">
+          <div className="relative hidden w-full max-w-md sm:block">
+            <Search className="lumi-muted absolute left-3 top-2.5 h-5 w-5" />
+            <input
+              type="search"
+              placeholder="Глобальный поиск — следующий этап"
+              disabled
+              className="lumi-control w-full rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-70"
+            />
+          </div>
+          <div className="ml-auto flex items-center gap-4">
+            <InstallAppButton compact />
+            <ThemeSwitcher />
+            <NotificationCenter />
+            <div className="flex items-center gap-3">
+              <div className="hidden text-right sm:block">
+                <p className="lumi-text text-sm font-semibold">{user?.displayName || 'Владелец офиса'}</p>
+                <p className="lumi-muted text-xs">{user?.email}</p>
+              </div>
+              <div className="lumi-gradient-button flex h-10 w-10 items-center justify-center rounded-full font-bold">
+                {user?.firstName?.[0] || 'L'}{user?.lastName?.[0] || ''}
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <div className="flex-1 overflow-y-auto p-4 pb-24 md:p-8">
+          {isHome ? renderHome() : children}
+        </div>
+      </main>
+
+      <nav className="lumi-header lumi-border fixed inset-x-0 bottom-0 z-[70] flex gap-1 overflow-x-auto border-t p-2 md:hidden">
+        {menuItems.map(item => {
+          const Icon = item.icon
+          const active = isActive(item.id)
+          return (
+            <button type="button" key={item.id} onClick={() => navigate(item.id)} className={`flex min-w-[4.6rem] shrink-0 flex-col items-center gap-1 rounded-xl px-2 py-2 text-[0.68rem] ${active ? 'lumi-nav-item-active' : 'lumi-nav-item'}`}>
+              <Icon style={{ width: 'var(--lumi-nav-icon-size)', height: 'var(--lumi-nav-icon-size)' }} />
+              <span>{item.label}</span>
+            </button>
+          )
+        })}
+      </nav>
+    </div>
+  )
+}
+
+export default Dashboard

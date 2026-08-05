@@ -1,0 +1,359 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+[data-theme='lumi-light'] {
+  --lumi-bg: #f2f5fa;
+  --lumi-sidebar: rgba(255, 255, 255, 0.92);
+  --lumi-header: rgba(255, 255, 255, 0.84);
+  --lumi-panel: rgba(255, 255, 255, 0.9);
+  --lumi-panel-muted: #f7f9fc;
+  --lumi-control: #f3f6fa;
+  --lumi-control-hover: #e9eef6;
+  --lumi-text: #101828;
+  --lumi-muted: #667085;
+  --lumi-muted-strong: #475467;
+  --lumi-border: #dde4ee;
+  --lumi-accent: #2563eb;
+  --lumi-accent-solid: #2563eb;
+  --lumi-accent-rgb: 37 99 235;
+  --lumi-accent-2: #7c3aed;
+  --lumi-on-accent: #ffffff;
+  --lumi-chart-grid: #dbe3ee;
+  --lumi-shadow: 0 18px 50px rgba(30, 64, 175, 0.08);
+  --lumi-glow: rgba(37, 99, 235, 0.12);
+  --lumi-logo-filter: brightness(0) saturate(100%);
+  --lumi-nav-icon-size: 1.25rem;
+}
+
+[data-theme='midnight'] {
+  --lumi-bg: #070b14;
+  --lumi-sidebar: rgba(13, 19, 32, 0.96);
+  --lumi-header: rgba(13, 19, 32, 0.84);
+  --lumi-panel: rgba(19, 27, 43, 0.9);
+  --lumi-panel-muted: rgba(9, 15, 27, 0.82);
+  --lumi-control: rgba(31, 41, 59, 0.9);
+  --lumi-control-hover: #273449;
+  --lumi-text: #f8fafc;
+  --lumi-muted: #8d9aaf;
+  --lumi-muted-strong: #c2ccda;
+  --lumi-border: #28364b;
+  --lumi-accent: #60a5fa;
+  --lumi-accent-solid: #2563eb;
+  --lumi-accent-rgb: 96 165 250;
+  --lumi-accent-2: #7c3aed;
+  --lumi-on-accent: #ffffff;
+  --lumi-chart-grid: #26334a;
+  --lumi-shadow: 0 20px 55px rgba(0, 0, 0, 0.28);
+  --lumi-glow: rgba(59, 130, 246, 0.13);
+  --lumi-logo-filter: none;
+}
+
+[data-theme='aurora'] {
+  --lumi-bg: #06110f;
+  --lumi-sidebar: rgba(7, 25, 22, 0.94);
+  --lumi-header: rgba(8, 27, 24, 0.82);
+  --lumi-panel: rgba(11, 34, 31, 0.88);
+  --lumi-panel-muted: rgba(5, 22, 20, 0.82);
+  --lumi-control: rgba(18, 52, 48, 0.9);
+  --lumi-control-hover: #174b45;
+  --lumi-text: #effcf8;
+  --lumi-muted: #86aaa2;
+  --lumi-muted-strong: #c2ded8;
+  --lumi-border: #1c4842;
+  --lumi-accent: #2dd4bf;
+  --lumi-accent-solid: #0f766e;
+  --lumi-accent-rgb: 45 212 191;
+  --lumi-accent-2: #7e22ce;
+  --lumi-on-accent: #ffffff;
+  --lumi-chart-grid: #1c403c;
+  --lumi-shadow: 0 20px 60px rgba(4, 47, 46, 0.38);
+  --lumi-glow: rgba(168, 85, 247, 0.13);
+  --lumi-logo-filter: none;
+}
+
+[data-theme='graphite'] {
+  --lumi-bg: #0c0d0f;
+  --lumi-sidebar: rgba(20, 21, 24, 0.96);
+  --lumi-header: rgba(20, 21, 24, 0.88);
+  --lumi-panel: rgba(27, 28, 32, 0.92);
+  --lumi-panel-muted: rgba(16, 17, 20, 0.86);
+  --lumi-control: #24262b;
+  --lumi-control-hover: #303238;
+  --lumi-text: #fafafa;
+  --lumi-muted: #92939a;
+  --lumi-muted-strong: #d4d4d8;
+  --lumi-border: #34363c;
+  --lumi-accent: #e4e4e7;
+  --lumi-accent-solid: #d4d4d8;
+  --lumi-accent-rgb: 228 228 231;
+  --lumi-accent-2: #71717a;
+  --lumi-on-accent: #18181b;
+  --lumi-chart-grid: #33353a;
+  --lumi-shadow: 0 20px 55px rgba(0, 0, 0, 0.35);
+  --lumi-glow: rgba(161, 161, 170, 0.09);
+  --lumi-logo-filter: none;
+}
+
+[data-theme='warm-sand'] {
+  --lumi-bg: #eee6da;
+  --lumi-sidebar: rgba(252, 247, 239, 0.94);
+  --lumi-header: rgba(252, 247, 239, 0.84);
+  --lumi-panel: rgba(255, 251, 245, 0.92);
+  --lumi-panel-muted: #f6eee3;
+  --lumi-control: #f2e8dc;
+  --lumi-control-hover: #eadbcd;
+  --lumi-text: #382e2e;
+  --lumi-muted: #7a6b68;
+  --lumi-muted-strong: #5e4f4d;
+  --lumi-border: #dfd1c4;
+  --lumi-accent: #9f3f5f;
+  --lumi-accent-solid: #9f3f5f;
+  --lumi-accent-rgb: 159 63 95;
+  --lumi-accent-2: #c47b4c;
+  --lumi-on-accent: #ffffff;
+  --lumi-chart-grid: #dfd2c7;
+  --lumi-shadow: 0 18px 50px rgba(91, 56, 45, 0.12);
+  --lumi-glow: rgba(159, 63, 95, 0.11);
+  --lumi-logo-filter: brightness(0) saturate(100%);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--lumi-bg);
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  background: var(--lumi-bg);
+  color: var(--lumi-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgb(var(--lumi-accent-rgb) / 0.28);
+}
+
+.lumi-shell {
+  background:
+    radial-gradient(circle at 76% -20%, var(--lumi-glow), transparent 34rem),
+    var(--lumi-bg);
+  color: var(--lumi-text);
+}
+
+.lumi-sidebar {
+  border-color: var(--lumi-border);
+  background: var(--lumi-sidebar);
+}
+
+.lumi-header {
+  border-color: var(--lumi-border);
+  background: var(--lumi-header);
+}
+
+.lumi-panel {
+  border-color: var(--lumi-border);
+  background: var(--lumi-panel);
+  box-shadow: var(--lumi-shadow);
+}
+
+.lumi-panel-muted {
+  border-color: var(--lumi-border);
+  background: var(--lumi-panel-muted);
+}
+
+.lumi-kpi-grid {
+  background: var(--lumi-border);
+}
+
+.lumi-kpi-grid > * {
+  background: var(--lumi-panel-muted);
+}
+
+.lumi-border {
+  border-color: var(--lumi-border);
+}
+
+.lumi-text {
+  color: var(--lumi-text);
+}
+
+.lumi-muted {
+  color: var(--lumi-muted);
+}
+
+.lumi-muted-strong {
+  color: var(--lumi-muted-strong);
+}
+
+.lumi-accent-text {
+  color: var(--lumi-accent);
+}
+
+.lumi-accent-bg {
+  background: var(--lumi-accent-solid);
+  color: var(--lumi-on-accent);
+}
+
+.lumi-accent-soft {
+  background: rgb(var(--lumi-accent-rgb) / 0.12);
+  color: var(--lumi-accent);
+}
+
+.lumi-control {
+  border: 1px solid var(--lumi-border);
+  background: var(--lumi-control);
+  color: var(--lumi-muted-strong);
+}
+
+.lumi-control:hover {
+  background: var(--lumi-control-hover);
+  color: var(--lumi-text);
+}
+
+.lumi-nav-item {
+  color: var(--lumi-muted);
+}
+
+.lumi-nav-item:hover {
+  background: var(--lumi-control);
+  color: var(--lumi-text);
+}
+
+.lumi-nav-item-active {
+  background: rgb(var(--lumi-accent-rgb) / 0.12);
+  color: var(--lumi-accent);
+}
+
+.lumi-theme-menu {
+  border: 1px solid var(--lumi-border);
+  background: var(--lumi-panel);
+  box-shadow: var(--lumi-shadow);
+  backdrop-filter: blur(22px);
+}
+
+.lumi-theme-option:hover {
+  background: var(--lumi-control);
+}
+
+.lumi-logo {
+  filter: var(--lumi-logo-filter);
+}
+
+.lumi-gradient-button {
+  background: linear-gradient(120deg, var(--lumi-accent-solid), var(--lumi-accent-2));
+  color: var(--lumi-on-accent);
+}
+
+.lumi-shell .from-blue-600.to-purple-600,
+.lumi-shell .from-blue-600.to-violet-600 {
+  --tw-gradient-from: var(--lumi-accent-solid) var(--tw-gradient-from-position);
+  --tw-gradient-to: rgb(var(--lumi-accent-rgb) / 0) var(--tw-gradient-to-position);
+  --tw-gradient-stops: var(--tw-gradient-from), var(--lumi-accent-2) var(--tw-gradient-to-position);
+}
+
+.lumi-shell .bg-blue-600 {
+  background-color: var(--lumi-accent-solid);
+  color: var(--lumi-on-accent);
+}
+
+.lumi-shell .text-blue-400,
+.lumi-shell .text-blue-500,
+.lumi-shell .text-blue-600,
+.lumi-shell .text-blue-700 {
+  color: var(--lumi-accent);
+}
+
+/*
+ * Legacy components used Tailwind's fixed light/dark palette.  Keep those
+ * components theme-aware while they are gradually moved to Lumi tokens.
+ * The selectors are scoped to the application shell so status badges and
+ * destructive/action colours keep their own semantics.
+ */
+.lumi-shell .bg-white,
+.lumi-shell .dark\:bg-gray-800 {
+  background-color: var(--lumi-panel) !important;
+}
+
+.lumi-shell .bg-gray-50,
+.lumi-shell .bg-gray-50\/70,
+.lumi-shell .dark\:bg-gray-700\/50 {
+  background-color: var(--lumi-panel-muted) !important;
+}
+
+.lumi-shell .bg-gray-100,
+.lumi-shell .bg-gray-200,
+.lumi-shell .dark\:bg-gray-700 {
+  background-color: var(--lumi-control) !important;
+}
+
+.lumi-shell .hover\:bg-gray-100:hover,
+.lumi-shell .hover\:bg-gray-200:hover,
+.lumi-shell .dark\:hover\:bg-gray-600:hover,
+.lumi-shell .dark\:hover\:bg-gray-700:hover {
+  background-color: var(--lumi-control-hover) !important;
+}
+
+.lumi-shell .text-black,
+.lumi-shell .text-gray-900,
+.lumi-shell .dark\:text-white {
+  color: var(--lumi-text) !important;
+}
+
+.lumi-shell .text-gray-800,
+.lumi-shell .text-gray-700,
+.lumi-shell .text-gray-600,
+.lumi-shell .dark\:text-gray-200,
+.lumi-shell .dark\:text-gray-300 {
+  color: var(--lumi-muted-strong) !important;
+}
+
+.lumi-shell .text-gray-500,
+.lumi-shell .text-gray-400,
+.lumi-shell .dark\:text-gray-400 {
+  color: var(--lumi-muted) !important;
+}
+
+.lumi-shell .border-gray-50,
+.lumi-shell .border-gray-100,
+.lumi-shell .border-gray-200,
+.lumi-shell .border-gray-300,
+.lumi-shell .dark\:border-gray-600,
+.lumi-shell .dark\:border-gray-700 {
+  border-color: var(--lumi-border) !important;
+}
+
+.lumi-shell input:not([type='checkbox']):not([type='radio']),
+.lumi-shell select,
+.lumi-shell textarea {
+  border-color: var(--lumi-border);
+  background-color: var(--lumi-control);
+  color: var(--lumi-text);
+}
+
+.lumi-shell input::placeholder,
+.lumi-shell textarea::placeholder {
+  color: var(--lumi-muted);
+  opacity: 0.9;
+}
+
+.lumi-shell option {
+  background: var(--lumi-panel);
+  color: var(--lumi-text);
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
