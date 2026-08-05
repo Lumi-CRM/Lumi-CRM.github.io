@@ -1,5 +1,5 @@
-const CACHE_NAME = 'lumicrm-shell-v2'
-const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/favicon.png']
+const CACHE_NAME = 'lumicrm-shell-v3'
+const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon-192-v2.png', '/icon-512-v2.png']
 
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)))
@@ -52,8 +52,8 @@ self.addEventListener('push', event => {
 
   event.waitUntil(self.registration.showNotification(payload.title, {
     body: payload.body,
-    icon: '/favicon.png',
-    badge: '/favicon.png',
+    icon: '/icon-192-v2.png',
+    badge: '/icon-192-v2.png',
     data: { link: payload.link || '/' },
     tag: payload.tag || 'lumicrm-notification',
   }))
