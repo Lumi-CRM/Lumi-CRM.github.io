@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lumicrm-shell-v3'
+const CACHE_NAME = 'lumicrm-shell-v4'
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon-192-v2.png', '/icon-512-v2.png']
 
 self.addEventListener('install', event => {
@@ -18,15 +18,25 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   if (event.request.method !== 'GET' || new URL(event.request.url).origin !== self.location.origin) return
 
-  if (event.request.mode === 'navigate') {
+  const destination = event.request.destination
+  const mustRevalidate = event.request.mode === 'navigate'
+    || destination === 'script'
+    || destination === 'style'
+
+  if (mustRevalidate) {
     event.respondWith(
       fetch(event.request)
         .then(response => {
-          const copy = response.clone()
-          caches.open(CACHE_NAME).then(cache => cache.put('/index.html', copy))
+          if (response.ok) {
+            const copy = response.clone()
+            const cacheKey = event.request.mode === 'navigate' ? '/index.html' : event.request
+            caches.open(CACHE_NAME).then(cache => cache.put(cacheKey, copy))
+          }
           return response
         })
-        .catch(() => caches.match('/index.html')),
+        .catch(() => event.request.mode === 'navigate'
+          ? caches.match('/index.html')
+          : caches.match(event.request)),
     )
     return
   }
