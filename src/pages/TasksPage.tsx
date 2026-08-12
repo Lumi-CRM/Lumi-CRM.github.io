@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Edit, Trash2, CheckSquare, Calendar } from 'lucide-react'
+import { Plus, Edit, Trash2, Calendar, Clock } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -17,16 +17,18 @@ const TasksPage = () => {
   const [status, setStatus] = useState<'todo' | 'inprogress' | 'done'>('todo')
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('medium')
   const [dueDate, setDueDate] = useState('')
+  const [dueTime, setDueTime] = useState('')
 
   const fetchTasks = async () => {
     if (!user) return
     setLoading(true)
-    const { data } = await supabase.from('tasks').select('*').eq('user_id', user.id).order('due_date', { ascending: true, nullsFirst: false })
+    const { data } = await supabase.from('tasks').select('*').eq('user_id', user.id).order('due_date', { ascending: true, nullsFirst: false }).order('due_time', { ascending: true, nullsFirst: false })
     if (data) {
       const mapped = data.map(t => ({
         ...t,
         userId: t.user_id,
         dueDate: t.due_date,
+        dueTime: t.due_time,
         isFavorite: t.is_favorite,
         isCompleted: t.is_completed
       }))
@@ -49,7 +51,8 @@ const TasksPage = () => {
         description,
         status,
         priority,
-        due_date: dueDate || null
+        due_date: dueDate || null,
+        due_time: dueTime || null,
       }).eq('id', editingTask.id).eq('user_id', user.id)
     } else {
       await supabase.from('tasks').insert({
@@ -58,7 +61,8 @@ const TasksPage = () => {
         description,
         status,
         priority,
-        due_date: dueDate || null
+        due_date: dueDate || null,
+        due_time: dueTime || null,
       })
     }
 
@@ -86,6 +90,7 @@ const TasksPage = () => {
       setStatus(task.status)
       setPriority(task.priority)
       setDueDate(task.dueDate || '')
+      setDueTime(task.dueTime || '')
     } else {
       setEditingTask(null)
       setTitle('')
@@ -93,6 +98,7 @@ const TasksPage = () => {
       setStatus('todo')
       setPriority('medium')
       setDueDate('')
+      setDueTime('')
     }
     setIsModalOpen(true)
   }
@@ -193,7 +199,8 @@ const TasksPage = () => {
                       {task.dueDate && (
                         <div className="flex items-center gap-2 mt-3 text-gray-600 dark:text-gray-300 text-sm">
                           <Calendar className="w-4 h-4" />
-                          {task.dueDate}
+                          {new Date(`${task.dueDate}T00:00:00`).toLocaleDateString('ru-RU')}
+                          {task.dueTime && <><Clock className="ml-2 w-4 h-4" />{task.dueTime.slice(0, 5)}</>}
                         </div>
                       )}
                     </div>
@@ -276,14 +283,15 @@ const TasksPage = () => {
               </select>
             </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-900 mb-2">Срок выполнения</label>
-            <input
-              type="date"
-              value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              className="w-full px-4 py-3 rounded-xl border border-gray-300 bg-white text-black focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
-            />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-2">Дата выполнения</label>
+              <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-300 bg-white text-black focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-2">Время</label>
+              <input type="time" value={dueTime} onChange={(e) => setDueTime(e.target.value)} className="w-full px-4 py-3 rounded-xl border border-gray-300 bg-white text-black focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none" />
+            </div>
           </div>
           <div className="flex gap-4">
             <button

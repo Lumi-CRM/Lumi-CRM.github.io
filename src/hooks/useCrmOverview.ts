@@ -9,7 +9,7 @@ const initialValue: CrmOverview = {
   tasks: [],
   events: [],
   recentProperties: [],
-  analytics: { months: [], propertyTypes: [], totalDealVolume: 0 },
+  analytics: { months: [], periods: { days: [], weeks: [], months: [] }, propertyTypes: [], totalDealVolume: 0 },
 }
 
 export function useCrmOverview(enabled: boolean) {

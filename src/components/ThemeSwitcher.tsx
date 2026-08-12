@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, Palette } from 'lucide-react'
 import { themeOptions, useTheme } from '../context/ThemeContext'
-import { useAuth } from '../context/AuthContext'
 
 interface ThemeSwitcherProps {
   align?: 'left' | 'right'
@@ -10,7 +9,6 @@ interface ThemeSwitcherProps {
 
 const ThemeSwitcher = ({ align = 'right', showLabel = false }: ThemeSwitcherProps) => {
   const { theme, setTheme } = useTheme()
-  const { user, updatePreferences } = useAuth()
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -43,7 +41,7 @@ const ThemeSwitcher = ({ align = 'right', showLabel = false }: ThemeSwitcherProp
         >
           <div className="px-3 pb-2 pt-1">
             <p className="lumi-text text-sm font-semibold">Оформление офиса</p>
-            <p className="lumi-muted mt-0.5 text-xs">{user ? 'Выбор сохраняется в вашем профиле' : 'Выбор сохранится на этом устройстве'}</p>
+            <p className="lumi-muted mt-0.5 text-xs">Выбор сохраняется только на этом устройстве</p>
           </div>
           <div className="space-y-1">
             {themeOptions.map(option => (
@@ -54,7 +52,6 @@ const ThemeSwitcher = ({ align = 'right', showLabel = false }: ThemeSwitcherProp
                 aria-checked={theme.id === option.id}
                 onClick={() => {
                   setTheme(option.id)
-                  if (user) void updatePreferences({ theme: option.id })
                   setOpen(false)
                 }}
                 className="lumi-theme-option flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left transition"

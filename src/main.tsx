@@ -14,3 +14,15 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
     void navigator.serviceWorker.register('/sw.js')
   })
 }
+
+const lockMobileOrientation = async () => {
+  if (!window.matchMedia('(display-mode: standalone)').matches) return
+  const orientation = screen.orientation as ScreenOrientation & { lock?: (value: string) => Promise<void> }
+  try {
+    await orientation.lock?.('portrait-primary')
+  } catch {
+    // The manifest remains the portable orientation lock for installed PWAs.
+  }
+}
+
+window.addEventListener('load', () => void lockMobileOrientation())

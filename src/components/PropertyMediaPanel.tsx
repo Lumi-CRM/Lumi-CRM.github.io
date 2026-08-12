@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Camera, Download, Image as ImageIcon, Loader2, Trash2, Upload } from 'lucide-react'
+import { Camera, Download, Image as ImageIcon, Loader2, Star, Trash2, Upload } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import {
-  createSignedFileUrl,
+  createSignedFileUrls,
   deleteCrmFile,
   listCrmFiles,
+  mapWithConcurrency,
+  optimizeImageForUpload,
+  setPrimaryPropertyImage,
   uploadCrmFile,
   type CrmFileRecord,
 } from '../lib/files'
@@ -36,7 +39,11 @@ const PropertyMediaPanel = ({ propertyId, propertyAddress }: PropertyMediaPanelP
     setError('')
     try {
       const records = await listCrmFiles({ userId: user.id, bucket: 'crm-images', propertyId })
-      const withUrls = await Promise.all(records.map(async file => ({ ...file, signedUrl: await createSignedFileUrl(file) })))
+      const urlMap = await createSignedFileUrls(records)
+      const withUrls = records.flatMap(file => {
+        const signedUrl = urlMap.get(file.storage_path)
+        return signedUrl ? [{ ...file, signedUrl }] : []
+      })
       setFiles(withUrls)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Не удалось загрузить фотографии')
@@ -53,15 +60,32 @@ const PropertyMediaPanel = ({ propertyId, propertyAddress }: PropertyMediaPanelP
     setUploading(true)
     setError('')
     try {
-      for (const file of selected) {
-        await uploadCrmFile({ userId: user.id, bucket: 'crm-images', propertyId, category: group, file })
-      }
-      await load()
+      const uploaded = await mapWithConcurrency(selected, 3, async original => {
+        const file = await optimizeImageForUpload(original)
+        return uploadCrmFile({ userId: user.id, bucket: 'crm-images', propertyId, category: group, file })
+      })
+      const urlMap = await createSignedFileUrls(uploaded)
+      setFiles(current => [
+        ...uploaded.flatMap(file => {
+          const signedUrl = urlMap.get(file.storage_path)
+          return signedUrl ? [{ ...file, signedUrl }] : []
+        }),
+        ...current,
+      ])
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : 'Не удалось загрузить фотографии')
     } finally {
       setUploading(false)
       event.target.value = ''
+    }
+  }
+
+  const makePrimary = async (file: MediaWithUrl) => {
+    try {
+      await setPrimaryPropertyImage(file)
+      setFiles(current => current.map(item => ({ ...item, is_primary: item.id === file.id })))
+    } catch (primaryError) {
+      setError(primaryError instanceof Error ? primaryError.message : 'Не удалось выбрать главное фото')
     }
   }
 
@@ -118,6 +142,7 @@ const PropertyMediaPanel = ({ propertyId, propertyAddress }: PropertyMediaPanelP
                 <div className="aspect-[4/3] overflow-hidden bg-black/10"><img src={file.signedUrl} alt={file.name} className="h-full w-full object-cover transition group-hover:scale-105" /></div>
                 <div className="flex items-center gap-2 p-3">
                   <p className="lumi-text min-w-0 flex-1 truncate text-sm font-medium">{file.name}</p>
+                  <button type="button" onClick={() => void makePrimary(file)} className={`rounded-lg p-2 ${file.is_primary ? 'bg-amber-500/15 text-amber-500' : 'lumi-control'}`} title={file.is_primary ? 'Главное фото' : 'Сделать главным'}><Star className={`h-4 w-4 ${file.is_primary ? 'fill-current' : ''}`} /></button>
                   <a href={file.signedUrl} target="_blank" rel="noreferrer" className="lumi-control rounded-lg p-2" title="Открыть"><Download className="h-4 w-4" /></a>
                   <button type="button" onClick={() => void remove(file)} className="rounded-lg bg-red-500/10 p-2 text-red-500" title="Удалить"><Trash2 className="h-4 w-4" /></button>
                 </div>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react'
 import {
   AlertCircle,
   Archive,
@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   CheckSquare,
   FileText,
+  FileDown,
   Heart,
   Home,
   Image,
@@ -22,26 +23,15 @@ import {
 } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import {
-  CartesianGrid,
-  Cell,
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
 import { useAuth } from '../context/AuthContext'
 import { completeOverviewItem } from '../lib/crm'
 import { useCrmOverview } from '../hooks/useCrmOverview'
 import logoLight from '../assets/logo-light.png'
 import ThemeSwitcher from '../components/ThemeSwitcher'
 import InstallAppButton from '../components/InstallAppButton'
-import { useTheme } from '../context/ThemeContext'
 import NotificationCenter from '../components/NotificationCenter'
+
+const DashboardAnalytics = lazy(() => import('../components/DashboardAnalytics'))
 
 interface DashboardProps {
   children?: ReactNode
@@ -55,6 +45,8 @@ const menuItems = [
   { id: '/buyers', icon: Heart, label: 'Покупатели' },
   { id: '/tenants', icon: Users, label: 'Арендаторы' },
   { id: '/calendar', icon: Calendar, label: 'Календарь' },
+  { id: '/calls', icon: Phone, label: 'Звонки' },
+  { id: '/plan', icon: CalendarDays, label: 'План' },
   { id: '/tasks', icon: CheckSquare, label: 'Задачи' },
   { id: '/deals', icon: BriefcaseBusiness, label: 'Сделки' },
   { id: '/documents', icon: FileText, label: 'Документы' },
@@ -74,7 +66,6 @@ const formatDate = (value?: string) => {
 
 const Dashboard = ({ children }: DashboardProps) => {
   const { user, logout } = useAuth()
-  const { theme, setTheme } = useTheme()
   const navigate = useNavigate()
   const location = useLocation()
   const isHome = location.pathname === '/'
@@ -82,17 +73,13 @@ const Dashboard = ({ children }: DashboardProps) => {
   const [completingId, setCompletingId] = useState<string | null>(null)
   const [dashboardMode, setDashboardMode] = useState<'sale' | 'rent' | 'mortgage'>('sale')
 
-  useEffect(() => {
-    if (user?.preferences.theme && user.preferences.theme !== theme.id) setTheme(user.preferences.theme)
-  }, [setTheme, theme.id, user?.preferences.theme])
-
   const agenda = useMemo(() => {
     const tasks = data.tasks.map(task => ({
       id: task.id,
       kind: 'task' as const,
       title: task.title,
       date: task.dueDate,
-      subtitle: task.priority === 'high' ? 'Высокий приоритет' : 'Задача',
+      subtitle: `${task.priority === 'high' ? 'Высокий приоритет' : 'Задача'}${task.dueTime ? ` в ${task.dueTime.slice(0, 5)}` : ''}`,
     }))
     const events = data.events.map(event => ({
       id: event.id,
@@ -148,13 +135,12 @@ const Dashboard = ({ children }: DashboardProps) => {
   const currentObjects = currentAnalytics
     ? dashboardMode === 'rent' ? currentAnalytics.rentProperties : currentAnalytics.saleProperties
     : 0
-  const pieColors = ['#ec4899', '#8b5cf6', '#3b82f6', '#06b6d4', '#f59e0b', '#22c55e']
 
   const renderHome = () => (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <p className="lumi-accent-text mb-1 text-sm font-medium">Облачный офис LumiCRM</p>
+          <p className="lumi-accent-text mb-1 text-sm font-medium">Ваш личный облачный офис</p>
           <h1 className="lumi-text text-3xl font-bold">
             Добро пожаловать, {user?.firstName || 'в ваш офис'}
           </h1>
@@ -238,51 +224,7 @@ const Dashboard = ({ children }: DashboardProps) => {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 gap-6 p-5 xl:grid-cols-3">
-          <div className="lumi-panel-muted rounded-2xl border p-5 xl:col-span-2">
-            <div className="mb-4">
-              <h3 className="lumi-text font-semibold">Динамика базы за 12 месяцев</h3>
-              <p className="lumi-muted mt-1 text-sm">{chartConfig.firstLabel} и {chartConfig.secondLabel.toLowerCase()}</p>
-            </div>
-            <div className="h-72">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data.analytics.months} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid stroke="var(--lumi-chart-grid)" strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="label" stroke="var(--lumi-muted)" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
-                  <YAxis stroke="var(--lumi-muted)" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} allowDecimals={false} />
-                  <Tooltip contentStyle={{ background: 'var(--lumi-panel)', border: '1px solid var(--lumi-border)', borderRadius: 12, color: 'var(--lumi-text)' }} labelStyle={{ color: 'var(--lumi-text)' }} />
-                  <Line type="monotone" dataKey={chartConfig.firstKey} name={chartConfig.firstLabel} stroke={chartConfig.firstColor} strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                  <Line type="monotone" dataKey={chartConfig.secondKey} name={chartConfig.secondLabel} stroke={chartConfig.secondColor} strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 5 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          <div className="lumi-panel-muted rounded-2xl border p-5">
-            <h3 className="lumi-text font-semibold">Объекты по типам</h3>
-            <p className="lumi-muted mt-1 text-sm">Структура текущей базы</p>
-            <div className="h-52">
-              {data.analytics.propertyTypes.length ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={data.analytics.propertyTypes} dataKey="value" nameKey="name" innerRadius={55} outerRadius={82} paddingAngle={3}>
-                      {data.analytics.propertyTypes.map((item, index) => <Cell key={item.name} fill={pieColors[index % pieColors.length]} />)}
-                    </Pie>
-                    <Tooltip contentStyle={{ background: 'var(--lumi-panel)', border: '1px solid var(--lumi-border)', borderRadius: 12, color: 'var(--lumi-text)' }} />
-                  </PieChart>
-                </ResponsiveContainer>
-              ) : <div className="lumi-muted flex h-full items-center justify-center text-sm">Данные появятся после импорта</div>}
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              {data.analytics.propertyTypes.slice(0, 6).map((item, index) => (
-                <div key={item.name} className="lumi-muted flex items-center gap-2 text-xs">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: pieColors[index % pieColors.length] }} />
-                  <span className="truncate">{item.name}: {item.value}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <Suspense fallback={<div className="lumi-muted p-8 text-center">Загружаем аналитику…</div>}><DashboardAnalytics analytics={data.analytics} config={chartConfig} /></Suspense>
       </section>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
@@ -375,7 +317,7 @@ const Dashboard = ({ children }: DashboardProps) => {
           <Link to="/" className="flex items-center gap-3">
             <img src={logoLight} alt="LumiCRM" className="lumi-logo h-8 w-auto object-contain" />
           </Link>
-          <p className="lumi-muted mt-3 text-xs uppercase tracking-[0.18em]">Облачная CRM для недвижимости</p>
+          <p className="lumi-muted mt-3 text-xs uppercase tracking-[0.18em]">Ваш личный облачный офис</p>
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-4">
           {menuItems.map(item => {
@@ -423,6 +365,7 @@ const Dashboard = ({ children }: DashboardProps) => {
           </div>
           <div className="ml-auto flex items-center gap-4">
             <InstallAppButton compact />
+            <button type="button" onClick={() => window.print()} className="lumi-control hidden rounded-xl p-2.5 sm:inline-flex" title="Сохранить страницу как PDF"><FileDown className="h-5 w-5" /></button>
             <ThemeSwitcher />
             <NotificationCenter />
             <div className="flex items-center gap-3">

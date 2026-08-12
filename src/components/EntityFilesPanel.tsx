@@ -7,6 +7,7 @@ import {
   formatFileSize,
   listCrmFiles,
   uploadCrmFile,
+  mapWithConcurrency,
   type CrmFileRecord,
 } from '../lib/files'
 
@@ -46,16 +47,14 @@ const EntityFilesPanel = ({ clientId, propertyId, title = 'Документы', 
     setUploading(true)
     setError('')
     try {
-      for (const file of selected) {
-        await uploadCrmFile({
+      await mapWithConcurrency(selected, 3, file => uploadCrmFile({
           userId: user.id,
           bucket: 'crm-documents',
           clientId,
           propertyId,
           category: propertyId ? 'Документы объекта' : clientId ? 'Документы клиента' : 'Общие документы',
           file,
-        })
-      }
+        }))
       await loadFiles()
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : 'Не удалось загрузить документы')

@@ -21,6 +21,9 @@ const GalleryPage = lazy(() => import('./pages/GalleryPage'))
 const ArchivePage = lazy(() => import('./pages/ArchivePage'))
 const FavoritesPage = lazy(() => import('./pages/FavoritesPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
+const CallsPage = lazy(() => import('./pages/CallsPage'))
+const MonthlyPlanPage = lazy(() => import('./pages/MonthlyPlanPage'))
+const PublicPropertyPage = lazy(() => import('./pages/PublicPropertyPage'))
 
 const LoadingScreen = () => (
   <div className="lumi-shell lumi-muted flex min-h-screen items-center justify-center">
@@ -45,6 +48,7 @@ function App() {
               <Route path="/login" element={<LoginPage />} />
               <Route path="/auth/callback" element={<AuthCallbackPage />} />
               <Route path="/set-password" element={<SetPasswordPage />} />
+              <Route path="/p/:slug" element={<PublicPropertyPage />} />
               <Route path="/*" element={
                 <ProtectedRoute>
                   <WelcomeModal />
@@ -58,6 +62,8 @@ function App() {
                       <Route path="/buyers" element={<BuyersPage />} />
                       <Route path="/tenants" element={<BuyersPage mode="rent" />} />
                       <Route path="/calendar" element={<CalendarPage />} />
+                      <Route path="/calls" element={<CallsPage />} />
+                      <Route path="/plan" element={<MonthlyPlanPage />} />
                       <Route path="/tasks" element={<TasksPage />} />
                       <Route path="/deals" element={<DealsPage />} />
                       <Route path="/documents" element={<DocumentsPage />} />

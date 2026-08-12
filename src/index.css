@@ -128,6 +128,7 @@
 html {
   background: var(--lumi-bg);
   transition: background-color 180ms ease, color 180ms ease;
+  overflow-x: hidden;
 }
 
 body {
@@ -138,6 +139,14 @@ body {
   color: var(--lumi-text);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+#root {
+  min-width: 0;
+  max-width: 100vw;
+  overflow-x: hidden;
 }
 
 ::selection {
@@ -350,6 +359,30 @@ body {
 .lumi-shell option {
   background: var(--lumi-panel);
   color: var(--lumi-text);
+}
+
+.lumi-shell .recharts-default-tooltip,
+.lumi-shell .recharts-tooltip-wrapper .recharts-default-tooltip {
+  border-color: var(--lumi-border) !important;
+  background: var(--lumi-panel) !important;
+  color: var(--lumi-text) !important;
+}
+
+.lumi-shell .recharts-tooltip-item,
+.lumi-shell .recharts-tooltip-label {
+  color: var(--lumi-text) !important;
+}
+
+@media (max-width: 640px) {
+  .lumi-shell h1 { font-size: 1.65rem; line-height: 1.2; }
+  .lumi-shell button, .lumi-shell input, .lumi-shell select, .lumi-shell textarea { max-width: 100%; }
+  .lumi-shell .recharts-wrapper, .lumi-shell .recharts-surface { max-width: 100% !important; }
+}
+
+@media print {
+  .lumi-sidebar, .lumi-header, nav, button, [data-no-print] { display: none !important; }
+  html, body, #root, .lumi-shell { background: #fff !important; color: #111 !important; overflow: visible !important; }
+  .lumi-panel, .lumi-panel-muted { break-inside: avoid; box-shadow: none !important; border-color: #ddd !important; }
 }
 
 .glass {

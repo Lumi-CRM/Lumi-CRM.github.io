@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { Property, Client } from '../types'
 import PropertyForm from '../components/PropertyForm'
+import { createSignedFileUrls, type CrmFileRecord } from '../lib/files'
 
 const PropertiesPage = () => {
   const navigate = useNavigate()
@@ -35,7 +36,18 @@ const PropertiesPage = () => {
     ])
 
     if (propertiesResult.data) {
-      setProperties(propertiesResult.data.map(p => ({
+      const propertyRows = propertiesResult.data
+      const ids = propertyRows.map(property => property.id)
+      const { data: mediaRows } = ids.length
+        ? await supabase.from('crm_files').select('*').eq('user_id', user.id).eq('bucket', 'crm-images').in('property_id', ids).order('is_primary', { ascending: false }).order('created_at', { ascending: true })
+        : { data: [] }
+      const covers = new Map<string, CrmFileRecord>()
+      for (const file of (mediaRows || []) as CrmFileRecord[]) {
+        if (file.property_id && !covers.has(file.property_id)) covers.set(file.property_id, file)
+      }
+      const coverFiles = Array.from(covers.values())
+      const urls = await createSignedFileUrls(coverFiles)
+      setProperties(propertyRows.map(p => ({
         ...p,
         userId: p.user_id,
         listingType: p.listing_type,
@@ -50,6 +62,7 @@ const PropertiesPage = () => {
         photos: [],
         documents: [],
         notes: []
+        ,coverUrl: covers.get(p.id) ? urls.get(covers.get(p.id)!.storage_path) : undefined
       })))
     }
     if (clientsResult.data) {
@@ -129,11 +142,11 @@ const PropertiesPage = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Объекты</h1>
         <button
           onClick={() => { setEditingProperty(null); setIsModalOpen(true); }}
-          className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:opacity-90 transition-all flex items-center gap-2"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 px-5 py-3 text-white transition-all hover:opacity-90 sm:w-auto"
         >
           <Plus className="w-5 h-5" />
           Добавить объект
@@ -165,14 +178,14 @@ const PropertiesPage = () => {
               key={prop.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.05 }}
+              transition={{ delay: Math.min(i, 6) * 0.03 }}
               className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden hover:shadow-md transition-all"
             >
-              <div className="h-48 bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30 flex items-center justify-center">
-                <div className="text-center">
+              <div className="flex h-48 items-center justify-center overflow-hidden bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30">
+                {prop.coverUrl ? <img src={prop.coverUrl} alt={`Главное фото: ${prop.address}`} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <div className="text-center">
                   <Building2 className="w-12 h-12 mx-auto mb-2 text-gray-500" />
                   <p className="text-sm text-gray-500">Фото нет</p>
-                </div>
+                </div>}
               </div>
               <div className="p-6">
                 <div className="flex items-start justify-between mb-3">
@@ -196,10 +209,10 @@ const PropertiesPage = () => {
                     {getStatusText(prop.status)}
                   </span>
                 </div>
-                <div className="mt-4 flex gap-2">
+                <div className="mt-4 flex flex-wrap gap-2">
                   <button
                     onClick={() => navigate(`/properties/${prop.id}`)}
-                    className="flex-1 px-4 py-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition-colors flex items-center justify-center gap-2"
+                    className="flex min-w-32 flex-1 items-center justify-center gap-2 rounded-lg bg-blue-100 px-4 py-2 text-blue-600 transition-colors hover:bg-blue-200"
                   >
                     <Eye className="w-4 h-4" />
                     Просмотр

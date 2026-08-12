@@ -4,6 +4,7 @@ export type OverviewTask = {
   id: string
   title: string
   dueDate?: string
+  dueTime?: string
   priority: 'low' | 'medium' | 'high'
   status: 'todo' | 'inprogress' | 'done'
   isCompleted: boolean
@@ -35,32 +36,59 @@ export type CrmOverview = {
   events: OverviewEvent[]
   recentProperties: OverviewProperty[]
   analytics: {
-    months: Array<{
-      key: string
-      label: string
-      sellers: number
-      buyers: number
-      landlords: number
-      tenants: number
-      saleProperties: number
-      rentProperties: number
-      mortgageLeads: number
-      dealVolume: number
-    }>
+    months: AnalyticsPoint[]
+    periods: Record<'days' | 'weeks' | 'months', AnalyticsPoint[]>
     propertyTypes: Array<{ name: string; value: number }>
     totalDealVolume: number
   }
 }
 
-const makeMonths = () => {
-  const formatter = new Intl.DateTimeFormat('ru-RU', { month: 'short', year: '2-digit' })
-  return Array.from({ length: 12 }, (_, index) => {
+export type AnalyticsPoint = {
+  key: string
+  label: string
+  sellers: number
+  buyers: number
+  landlords: number
+  tenants: number
+  saleProperties: number
+  rentProperties: number
+  mortgageLeads: number
+  dealVolume: number
+}
+
+const emptyPoint = (key: string, label: string): AnalyticsPoint => ({ key, label, sellers: 0, buyers: 0, landlords: 0, tenants: 0, saleProperties: 0, rentProperties: 0, mortgageLeads: 0, dealVolume: 0 })
+
+const mondayOf = (date: Date) => {
+  const result = new Date(date)
+  const day = result.getDay() || 7
+  result.setDate(result.getDate() - day + 1)
+  result.setHours(0, 0, 0, 0)
+  return result
+}
+
+const makePeriods = () => {
+  const monthFormatter = new Intl.DateTimeFormat('ru-RU', { month: 'short', year: '2-digit' })
+  const shortFormatter = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'short' })
+  const months = Array.from({ length: 12 }, (_, index) => {
     const date = new Date()
     date.setDate(1)
     date.setMonth(date.getMonth() - (11 - index))
     const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-    return { key, label: formatter.format(date).replace('.', ''), sellers: 0, buyers: 0, landlords: 0, tenants: 0, saleProperties: 0, rentProperties: 0, mortgageLeads: 0, dealVolume: 0 }
+    return emptyPoint(key, monthFormatter.format(date).replace('.', ''))
   })
+  const days = Array.from({ length: 30 }, (_, index) => {
+    const date = new Date()
+    date.setHours(0, 0, 0, 0)
+    date.setDate(date.getDate() - (29 - index))
+    return emptyPoint(date.toISOString().slice(0, 10), shortFormatter.format(date).replace('.', ''))
+  })
+  const currentMonday = mondayOf(new Date())
+  const weeks = Array.from({ length: 12 }, (_, index) => {
+    const date = new Date(currentMonday)
+    date.setDate(date.getDate() - (11 - index) * 7)
+    return emptyPoint(date.toISOString().slice(0, 10), shortFormatter.format(date).replace('.', ''))
+  })
+  return { days, weeks, months }
 }
 
 const emptyOverview: CrmOverview = {
@@ -71,7 +99,7 @@ const emptyOverview: CrmOverview = {
   tasks: [],
   events: [],
   recentProperties: [],
-  analytics: { months: makeMonths(), propertyTypes: [], totalDealVolume: 0 },
+  analytics: { months: makePeriods().months, periods: makePeriods(), propertyTypes: [], totalDealVolume: 0 },
 }
 
 export async function getCrmOverview(): Promise<CrmOverview> {
@@ -80,10 +108,11 @@ export async function getCrmOverview(): Promise<CrmOverview> {
     supabase
       .from('properties')
       .select('id,address,price,status,property_type,listing_type,created_at')
+      .neq('status', 'archived')
       .order('created_at', { ascending: false }),
     supabase
       .from('tasks')
-      .select('id,title,due_date,priority,status,is_completed')
+      .select('id,title,due_date,due_time,priority,status,is_completed')
       .eq('is_completed', false)
       .order('due_date', { ascending: true, nullsFirst: false })
       .limit(8),
@@ -99,26 +128,36 @@ export async function getCrmOverview(): Promise<CrmOverview> {
   const firstError = [clients.error, properties.error, tasks.error, events.error, deals.error].find(Boolean)
   if (firstError) throw firstError
 
-  const months = makeMonths()
-  const monthMap = new Map(months.map(month => [month.key, month]))
+  const periods = makePeriods()
+  const maps = {
+    days: new Map(periods.days.map(point => [point.key, point])),
+    weeks: new Map(periods.weeks.map(point => [point.key, point])),
+    months: new Map(periods.months.map(point => [point.key, point])),
+  }
+  const pointsFor = (value?: string | null) => {
+    if (!value) return []
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return []
+    const monday = mondayOf(date).toISOString().slice(0, 10)
+    return [maps.days.get(value.slice(0, 10)), maps.weeks.get(monday), maps.months.get(value.slice(0, 7))].filter(Boolean) as AnalyticsPoint[]
+  }
   for (const client of clients.data ?? []) {
-    const month = client.created_at ? monthMap.get(String(client.created_at).slice(0, 7)) : undefined
-    if (!month) continue
-    if (client.type === 'seller') month.sellers += 1
-    if (client.type === 'buyer') month.buyers += 1
-    if (client.roles?.includes('landlord')) month.landlords += 1
-    if (client.roles?.includes('tenant')) month.tenants += 1
-    if (client.mortgage_status) month.mortgageLeads += 1
+    for (const point of pointsFor(client.created_at)) {
+      if (client.type === 'seller') point.sellers += 1
+      if (client.type === 'buyer') point.buyers += 1
+      if (client.roles?.includes('landlord')) point.landlords += 1
+      if (client.roles?.includes('tenant')) point.tenants += 1
+      if (client.mortgage_status) point.mortgageLeads += 1
+    }
   }
   for (const property of properties.data ?? []) {
-    const month = property.created_at ? monthMap.get(String(property.created_at).slice(0, 7)) : undefined
-    if (!month) continue
-    if (property.listing_type === 'rent') month.rentProperties += 1
-    else month.saleProperties += 1
+    for (const point of pointsFor(property.created_at)) {
+      if (property.listing_type === 'rent') point.rentProperties += 1
+      else point.saleProperties += 1
+    }
   }
   for (const deal of deals.data ?? []) {
-    const month = deal.created_at ? monthMap.get(String(deal.created_at).slice(0, 7)) : undefined
-    if (month) month.dealVolume += Number(deal.price || 0)
+    for (const point of pointsFor(deal.created_at)) point.dealVolume += Number(deal.price || 0)
   }
   const typeCounts = new Map<string, number>()
   for (const property of properties.data ?? []) {
@@ -136,6 +175,7 @@ export async function getCrmOverview(): Promise<CrmOverview> {
       id: task.id,
       title: task.title,
       dueDate: task.due_date ?? undefined,
+      dueTime: task.due_time ?? undefined,
       priority: task.priority,
       status: task.status,
       isCompleted: task.is_completed,
@@ -156,7 +196,8 @@ export async function getCrmOverview(): Promise<CrmOverview> {
       status: property.status,
     })),
     analytics: {
-      months,
+      months: periods.months,
+      periods,
       propertyTypes: Array.from(typeCounts, ([name, value]) => ({ name, value })),
       totalDealVolume: (deals.data ?? []).reduce((sum, deal) => sum + Number(deal.price || 0), 0),
     },

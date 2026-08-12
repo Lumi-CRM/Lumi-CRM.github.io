@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Camera, FileText, Edit, Trash2 } from 'lucide-react'
+import { ArrowLeft, Camera, FileText, Edit, Trash2, Users } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import PropertyForm from '../components/PropertyForm'
@@ -8,6 +8,8 @@ import Modal from '../components/Modal'
 import EntityFilesPanel from '../components/EntityFilesPanel'
 import PropertyMediaPanel from '../components/PropertyMediaPanel'
 import ActivityTimeline from '../components/ActivityTimeline'
+import PropertyShowingsPanel from '../components/PropertyShowingsPanel'
+import SharePropertyButton from '../components/SharePropertyButton'
 import { Property, Client } from '../types'
 
 const PropertyDetailPage = () => {
@@ -18,7 +20,7 @@ const PropertyDetailPage = () => {
   const [owners, setOwners] = useState<Client[]>([])
   const [owner, setOwner] = useState<Client | null>(null)
   const [loading, setLoading] = useState(true)
-  const [activeTab, setActiveTab] = useState<'info' | 'photos' | 'documents'>('info')
+  const [activeTab, setActiveTab] = useState<'info' | 'photos' | 'documents' | 'showings'>('info')
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
 
@@ -128,19 +130,20 @@ const PropertyDetailPage = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
           <button onClick={() => navigate('/properties')} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-colors">
             <ArrowLeft className="w-6 h-6 text-gray-700 dark:text-gray-300" />
           </button>
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white">{property.address}</h1>
+            <h1 className="break-words text-3xl font-bold text-gray-900 dark:text-white">{property.address}</h1>
             <span className={`inline-block px-3 py-1 text-xs rounded-full font-medium mt-1 ${getStatusColor(property.status)}`}>
               {getStatusText(property.status)}
             </span>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <SharePropertyButton property={property} />
           <button
             onClick={() => setIsEditModalOpen(true)}
             className="px-4 py-2 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition flex items-center gap-2"
@@ -159,7 +162,7 @@ const PropertyDetailPage = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex bg-gray-100 dark:bg-gray-800 rounded-xl p-1 w-fit">
+      <div className="flex max-w-full gap-1 overflow-x-auto rounded-xl bg-gray-100 p-1 dark:bg-gray-800">
         <button
           onClick={() => setActiveTab('info')}
           className={`px-6 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2
@@ -184,6 +187,7 @@ const PropertyDetailPage = () => {
           <FileText className="w-4 h-4" />
           Документы
         </button>
+        <button onClick={() => setActiveTab('showings')} className={`flex shrink-0 items-center gap-2 rounded-lg px-6 py-2 text-sm font-medium transition-all ${activeTab === 'showings' ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-white' : 'text-gray-600 dark:text-gray-300'}`}><Users className="h-4 w-4" />Показы</button>
       </div>
 
       {/* Content */}
@@ -341,6 +345,8 @@ const PropertyDetailPage = () => {
       {activeTab === 'documents' && (
         <EntityFilesPanel propertyId={property.id} title="Документы объекта" />
       )}
+
+      {activeTab === 'showings' && <PropertyShowingsPanel propertyId={property.id} />}
 
       {/* Modals */}
       <PropertyForm

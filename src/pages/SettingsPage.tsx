@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Bell, BellRing, LayoutPanelLeft, Maximize2, Palette, Save, Settings, Smartphone } from 'lucide-react'
 import { useAuth, type IconSize, type InterfaceDensity, type NavigationPosition } from '../context/AuthContext'
-import { themeOptions, useTheme, type ThemeId } from '../context/ThemeContext'
+import { themeOptions, useTheme } from '../context/ThemeContext'
 import { registerPushSubscription } from '../lib/pushNotifications'
 
 const SettingsPage = () => {
@@ -13,14 +13,9 @@ const SettingsPage = () => {
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(() => 'Notification' in window ? Notification.permission : 'unsupported')
   const [notificationMessage, setNotificationMessage] = useState('')
 
-  useEffect(() => {
-    if (user?.preferences.theme && user.preferences.theme !== theme.id) setTheme(user.preferences.theme)
-  }, [setTheme, theme.id, user?.preferences.theme])
-
   if (!user) return null
 
   const savePreference = async <K extends keyof typeof user.preferences>(key: K, value: typeof user.preferences[K]) => {
-    if (key === 'theme') setTheme(value as ThemeId)
     const saved = await updatePreferences({ [key]: value })
     setSavedMessage(saved ? 'Настройки сохранены' : '')
   }
@@ -77,11 +72,11 @@ const SettingsPage = () => {
       <section className="lumi-panel rounded-2xl border p-6">
         <div className="mb-5 flex items-center gap-3">
           <Palette className="lumi-accent-text h-6 w-6" />
-          <div><h2 className="lumi-text text-xl font-semibold">Оформление</h2><p className="lumi-muted text-sm">Тема применяется ко всем блокам интерфейса.</p></div>
+          <div><h2 className="lumi-text text-xl font-semibold">Оформление</h2><p className="lumi-muted text-sm">Тема применяется ко всем блокам и сохраняется отдельно на каждом устройстве.</p></div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           {themeOptions.map(option => (
-            <button key={option.id} type="button" onClick={() => void savePreference('theme', option.id)} className={`rounded-2xl border p-4 text-left transition ${theme.id === option.id ? 'border-[var(--lumi-accent)] ring-2 ring-[rgb(var(--lumi-accent-rgb)/0.18)]' : 'lumi-border lumi-panel-muted'}`}>
+            <button key={option.id} type="button" onClick={() => { setTheme(option.id); setSavedMessage('Тема сохранена на этом устройстве') }} className={`rounded-2xl border p-4 text-left transition ${theme.id === option.id ? 'border-[var(--lumi-accent)] ring-2 ring-[rgb(var(--lumi-accent-rgb)/0.18)]' : 'lumi-border lumi-panel-muted'}`}>
               <div className="mb-3 flex gap-1.5">{option.swatches.map(color => <span key={color} className="h-5 flex-1 rounded-md" style={{ backgroundColor: color }} />)}</div>
               <p className="lumi-text font-semibold">{option.name}</p>
               <p className="lumi-muted mt-1 text-xs leading-5">{option.description}</p>

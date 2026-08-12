@@ -70,6 +70,7 @@ export interface Property {
   parking?: boolean
   heating?: string
   walls?: string
+  coverUrl?: string
 }
 
 export interface Deal {
@@ -109,6 +110,7 @@ export interface Task {
   status: TaskStatus
   priority: Priority
   dueDate?: string
+  dueTime?: string
   isFavorite: boolean
   createdAt: string
   isCompleted: boolean
