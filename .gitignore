@@ -10,8 +10,13 @@ lerna-debug.log*
 node_modules
 dist
 dist-ssr
+dist-desktop
+release
 tmp
 *.local
+*.p12
+*.jks
+*.keystore
 .env
 *.tsbuildinfo
 .vite-dev*.log

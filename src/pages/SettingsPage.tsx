@@ -3,6 +3,7 @@ import { Bell, BellRing, LayoutPanelLeft, Maximize2, Palette, Save, Settings, Sm
 import { useAuth, type IconSize, type InterfaceDensity, type NavigationPosition } from '../context/AuthContext'
 import { themeOptions, useTheme } from '../context/ThemeContext'
 import { registerPushSubscription } from '../lib/pushNotifications'
+import AppDownloadPanel from '../components/AppDownloadPanel'
 
 const SettingsPage = () => {
   const { user, updatePreferences, updateNotificationPreferences, updateUser } = useAuth()
@@ -68,6 +69,8 @@ const SettingsPage = () => {
       </div>
 
       {savedMessage && <div className="rounded-xl border border-emerald-700/40 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-300">{savedMessage}</div>}
+
+      <AppDownloadPanel />
 
       <section className="lumi-panel rounded-2xl border p-6">
         <div className="mb-5 flex items-center gap-3">

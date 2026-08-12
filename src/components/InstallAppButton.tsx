@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Download, MonitorDown } from 'lucide-react'
+import { ANDROID_APK_URL, detectAppPlatform, isInstalledApplication, WINDOWS_INSTALLER_URL } from '../lib/appDownloads'
 
 interface InstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -13,7 +14,7 @@ interface InstallAppButtonProps {
 const InstallAppButton = ({ compact = false }: InstallAppButtonProps) => {
   const [prompt, setPrompt] = useState<InstallPromptEvent | null>(null)
   const [installed, setInstalled] = useState(
-    () => window.matchMedia('(display-mode: standalone)').matches,
+    () => isInstalledApplication(),
   )
   const [showHint, setShowHint] = useState(false)
 
@@ -39,6 +40,15 @@ const InstallAppButton = ({ compact = false }: InstallAppButtonProps) => {
   if (installed) return null
 
   const install = async () => {
+    const platform = detectAppPlatform()
+    if (platform === 'android') {
+      window.location.assign(ANDROID_APK_URL)
+      return
+    }
+    if (platform === 'windows') {
+      window.location.assign(WINDOWS_INSTALLER_URL)
+      return
+    }
     if (!prompt) {
       setShowHint(value => !value)
       return
@@ -57,11 +67,11 @@ const InstallAppButton = ({ compact = false }: InstallAppButtonProps) => {
         aria-label="Установить LumiCRM"
       >
         {compact ? <Download className="h-5 w-5" /> : <MonitorDown className="h-5 w-5" />}
-        {!compact && <span>Установить приложение</span>}
+        <span>{compact ? 'Скачать' : 'Скачать приложение'}</span>
       </button>
       {showHint && (
         <div className="lumi-theme-menu lumi-muted-strong absolute right-0 top-full z-50 mt-2 w-72 rounded-xl p-4 text-xs leading-5">
-          После публикации выберите в меню браузера «Установить LumiCRM». На iPhone и iPad: «Поделиться» → «На экран Домой».
+          На iPhone и iPad нажмите «Поделиться» → «На экран Домой». На других устройствах выберите в меню браузера «Установить LumiCRM».
         </div>
       )}
     </div>

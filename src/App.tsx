@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ReactNode } from 'react'
-import { BrowserRouter as Router, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
 import ErrorBoundary from './components/ErrorBoundary'
@@ -40,6 +40,8 @@ const ProtectedRoute = ({ children }: { children: ReactNode }) => {
 }
 
 function App() {
+  const Router = window.location.protocol === 'file:' ? HashRouter : BrowserRouter
+
   return (
     <ErrorBoundary>
       <PortraitGuard>
