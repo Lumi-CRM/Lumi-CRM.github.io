@@ -1,5 +1,8 @@
 apply plugin: 'com.android.application'
 
+def lumiVersionCode = Integer.parseInt(System.getenv('LUMICRM_VERSION_CODE') ?: '1')
+def lumiVersionName = System.getenv('LUMICRM_VERSION_NAME') ?: '1.0.0'
+
 android {
     namespace = "com.lumicrm.office"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +10,8 @@ android {
         applicationId "com.lumicrm.office"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode (System.getenv('LUMICRM_VERSION_CODE') ?: '1').toInteger()
-        versionName System.getenv('LUMICRM_VERSION_NAME') ?: '1.0.0'
+        versionCode lumiVersionCode
+        versionName lumiVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
