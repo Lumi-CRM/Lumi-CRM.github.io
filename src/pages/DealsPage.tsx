@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { Plus, FileText, Trash2, Edit, Building2, Users } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { BriefcaseBusiness, Building2, Edit, FileText, Plus, Trash2, Users } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { useAppStore } from '../store'
+import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase'
 import Modal from '../components/Modal'
-import { Deal } from '../types'
+import type { Deal } from '../types'
 
 type DealFormData = {
   propertyId: string
@@ -14,266 +15,288 @@ type DealFormData = {
   notes: string
 }
 
+type DealProperty = {
+  id: string
+  address: string
+  price?: number
+  ownerId?: string
+}
+
+type DealClient = {
+  id: string
+  firstName: string
+  lastName: string
+  phone: string
+  type: 'buyer' | 'seller'
+  roles: string[]
+}
+
+const emptyForm: DealFormData = {
+  propertyId: '',
+  buyerId: '',
+  ownerId: '',
+  price: undefined,
+  status: 'active',
+  notes: '',
+}
+
+const clientName = (client?: DealClient) => client
+  ? [client.lastName, client.firstName].filter(Boolean).join(' ') || client.phone || 'Без имени'
+  : 'Не выбран'
+
 const DealsPage = () => {
-  const deals = useAppStore((state) => state.deals)
-  const properties = useAppStore((state) => state.properties)
-  const buyers = useAppStore((state) => state.buyers)
-  const owners = useAppStore((state) => state.owners)
-  const addDeal = useAppStore((state) => state.addDeal)
-  const updateDeal = useAppStore((state) => state.updateDeal)
-  const deleteDeal = useAppStore((state) => state.deleteDeal)
+  const { user } = useAuth()
+  const [deals, setDeals] = useState<Deal[]>([])
+  const [properties, setProperties] = useState<DealProperty[]>([])
+  const [clients, setClients] = useState<DealClient[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingDeal, setEditingDeal] = useState<Deal | null>(null)
-  const [formData, setFormData] = useState<DealFormData>({
-    propertyId: '',
-    buyerId: '',
-    ownerId: '',
-    price: undefined as number | undefined,
-    status: 'active',
-    notes: ''
-  })
+  const [formData, setFormData] = useState<DealFormData>(emptyForm)
 
-  const handleOpenModal = (deal?: Deal) => {
-    if (deal) {
-      setEditingDeal(deal)
-      setFormData({
-        propertyId: deal.propertyId,
-        buyerId: deal.buyerId || '',
-        ownerId: deal.ownerId || '',
-        price: deal.price,
-        status: deal.status,
-        notes: deal.notes || ''
-      })
-    } else {
-      setEditingDeal(null)
-      setFormData({
-        propertyId: '',
-        buyerId: '',
-        ownerId: '',
-        price: undefined,
-        status: 'active',
-        notes: ''
-      })
+  const load = useCallback(async () => {
+    if (!user) return
+    setLoading(true)
+    setError('')
+    try {
+      const [dealsResult, propertiesResult, clientsResult] = await Promise.all([
+        supabase.from('deals').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('properties').select('id,address,price,owner_id').eq('user_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('clients').select('id,first_name,last_name,phone,type,roles').eq('user_id', user.id).order('created_at', { ascending: false }),
+      ])
+      const firstError = [dealsResult.error, propertiesResult.error, clientsResult.error].find(Boolean)
+      if (firstError) throw firstError
+
+      const mappedProperties = (propertiesResult.data ?? []).map(item => ({
+        id: item.id,
+        address: item.address || 'Адрес не указан',
+        price: item.price === null ? undefined : Number(item.price),
+        ownerId: item.owner_id || undefined,
+      }))
+      setProperties(mappedProperties)
+      setClients((clientsResult.data ?? []).map(item => ({
+        id: item.id,
+        firstName: item.first_name || '',
+        lastName: item.last_name || '',
+        phone: item.phone || '',
+        type: item.type,
+        roles: item.roles || [],
+      })))
+      setDeals((dealsResult.data ?? []).map(item => ({
+        id: item.id,
+        userId: item.user_id,
+        propertyId: item.property_id,
+        buyerId: item.buyer_id || undefined,
+        ownerId: mappedProperties.find(property => property.id === item.property_id)?.ownerId,
+        price: item.price === null ? undefined : Number(item.price),
+        status: item.status,
+        notes: item.notes || undefined,
+        createdAt: item.created_at,
+        updatedAt: item.updated_at || item.created_at,
+      })))
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Не удалось загрузить сделки')
+    } finally {
+      setLoading(false)
     }
+  }, [user])
+
+  useEffect(() => { void load() }, [load])
+
+  const buyers = useMemo(
+    () => clients.filter(client => client.type === 'buyer' || client.roles.includes('buyer') || client.roles.includes('tenant')),
+    [clients],
+  )
+  const owners = useMemo(
+    () => clients.filter(client => client.type === 'seller' || client.roles.includes('seller') || client.roles.includes('landlord')),
+    [clients],
+  )
+
+  const openModal = (deal?: Deal) => {
+    setError('')
+    setEditingDeal(deal ?? null)
+    setFormData(deal ? {
+      propertyId: deal.propertyId,
+      buyerId: deal.buyerId || '',
+      ownerId: deal.ownerId || properties.find(property => property.id === deal.propertyId)?.ownerId || '',
+      price: deal.price,
+      status: deal.status,
+      notes: deal.notes || '',
+    } : emptyForm)
     setIsModalOpen(true)
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (editingDeal) {
-      updateDeal(editingDeal.id, formData)
-    } else {
-      addDeal(formData)
-    }
-    setIsModalOpen(false)
+  const handlePropertyChange = (propertyId: string) => {
+    const property = properties.find(item => item.id === propertyId)
+    setFormData(current => ({
+      ...current,
+      propertyId,
+      ownerId: property?.ownerId || current.ownerId,
+      price: current.price ?? property?.price,
+    }))
   }
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'active': return 'bg-emerald-100 text-emerald-700'
-      case 'closed': return 'bg-blue-100 text-blue-700'
-      case 'failed': return 'bg-red-100 text-red-700'
-      case 'archived': return 'bg-gray-100 text-gray-700'
-      default: return 'bg-gray-100 text-gray-700'
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!user) return
+    setSaving(true)
+    setError('')
+    try {
+      const selectedProperty = properties.find(property => property.id === formData.propertyId)
+      if (formData.ownerId && selectedProperty?.ownerId !== formData.ownerId) {
+        const { error: propertyError } = await supabase
+          .from('properties')
+          .update({ owner_id: formData.ownerId })
+          .eq('id', formData.propertyId)
+          .eq('user_id', user.id)
+        if (propertyError) throw propertyError
+      }
+
+      const payload = {
+        user_id: user.id,
+        property_id: formData.propertyId,
+        buyer_id: formData.buyerId,
+        price: formData.price ?? null,
+        status: formData.status,
+        notes: formData.notes || null,
+      }
+      const result = editingDeal
+        ? await supabase.from('deals').update(payload).eq('id', editingDeal.id).eq('user_id', user.id)
+        : await supabase.from('deals').insert(payload)
+      if (result.error) throw result.error
+
+      setIsModalOpen(false)
+      setEditingDeal(null)
+      await load()
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : 'Не удалось сохранить сделку')
+    } finally {
+      setSaving(false)
     }
   }
 
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case 'active': return 'Активна'
-      case 'closed': return 'Закрыта'
-      case 'failed': return 'Отменена'
-      case 'archived': return 'Архив'
-      default: return status
-    }
+  const removeDeal = async (deal: Deal) => {
+    if (!user || !window.confirm('Удалить сделку?')) return
+    const { error: deleteError } = await supabase.from('deals').delete().eq('id', deal.id).eq('user_id', user.id)
+    if (deleteError) setError(deleteError.message)
+    else await load()
+  }
+
+  const statusLabel: Record<Deal['status'], string> = {
+    pending: 'Подготовка',
+    active: 'Активна',
+    closed: 'Закрыта',
+    cancelled: 'Отменена',
+  }
+  const statusClass: Record<Deal['status'], string> = {
+    pending: 'bg-amber-500/15 text-amber-500',
+    active: 'bg-emerald-500/15 text-emerald-500',
+    closed: 'lumi-accent-soft',
+    cancelled: 'bg-red-500/15 text-red-500',
   }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white">Сделки</h1>
-        <button
-          onClick={() => handleOpenModal()}
-          className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:opacity-90 transition-all flex items-center gap-2"
-        >
-          <Plus className="w-5 h-5" />
-          Добавить сделку
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="lumi-text text-3xl font-bold">Сделки</h1>
+          <p className="lumi-muted mt-1 text-sm">Объекты и участники выбираются из вашей облачной базы.</p>
+        </div>
+        <button type="button" onClick={() => openModal()} className="lumi-gradient-button flex items-center gap-2 rounded-xl px-5 py-3 font-semibold">
+          <Plus className="h-5 w-5" />Новая сделка
         </button>
       </div>
-      {deals.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-gray-500 dark:text-gray-400">
-          <FileText className="w-16 h-16 mb-4 text-gray-300" />
-          <p className="text-lg font-medium">Нет сделок</p>
-          <p className="text-sm mt-2">Добавьте первую сделку</p>
+
+      {error && <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400">{error}</div>}
+      {loading ? (
+        <div className="lumi-muted py-20 text-center">Загружаем сделки…</div>
+      ) : deals.length === 0 ? (
+        <div className="lumi-panel lumi-muted flex flex-col items-center justify-center rounded-2xl border py-20 text-center">
+          <FileText className="mb-4 h-16 w-16" />
+          <p className="lumi-text text-lg font-medium">Сделок пока нет</p>
+          <p className="mt-2 text-sm">Создайте сделку и свяжите объект с клиентами</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {deals.map((deal, i) => {
-            const property = properties.find(p => p.id === deal.propertyId)
-            const buyer = deal.buyerId ? buyers.find(b => b.id === deal.buyerId) : null
-            const owner = deal.ownerId ? owners.find(o => o.id === deal.ownerId) : null
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          {deals.map((deal, index) => {
+            const property = properties.find(item => item.id === deal.propertyId)
+            const buyer = buyers.find(item => item.id === deal.buyerId)
+            const owner = owners.find(item => item.id === (deal.ownerId || property?.ownerId))
             return (
-              <motion.div
-                key={deal.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-6"
-              >
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <p className="text-lg font-semibold text-gray-900 dark:text-white">{property?.address || 'Объект не найден'}</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white mt-1">{deal.price?.toLocaleString('ru-RU')} ₽</p>
+              <motion.article key={deal.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.025 }} className="lumi-panel rounded-2xl border p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="lumi-text truncate text-lg font-semibold">{property?.address || 'Объект не найден'}</p>
+                    <p className="lumi-text mt-1 text-2xl font-bold">{deal.price ? `${deal.price.toLocaleString('ru-RU')} ₽` : 'Цена не указана'}</p>
                   </div>
-                  <span className={`px-3 py-1 text-xs rounded-full font-medium ${getStatusColor(deal.status)}`}>
-                    {getStatusText(deal.status)}
-                  </span>
+                  <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${statusClass[deal.status]}`}>{statusLabel[deal.status]}</span>
                 </div>
-                <div className="space-y-3">
-                  {buyer && (
-                    <div className="flex items-center gap-2 text-gray-600 dark:text-gray-300">
-                      <Users className="w-4 h-4" />
-                      <span>Покупатель: {buyer.lastName} {buyer.firstName}</span>
-                    </div>
-                  )}
-                  {owner && (
-                    <div className="flex items-center gap-2 text-gray-600 dark:text-gray-300">
-                      <Users className="w-4 h-4" />
-                      <span>Собственник: {owner.lastName} {owner.firstName}</span>
-                    </div>
-                  )}
-                  {deal.notes && (
-                    <div className="p-3 rounded-xl bg-gray-50 dark:bg-gray-700">
-                      <p className="text-sm text-gray-600 dark:text-gray-300">{deal.notes}</p>
-                    </div>
-                  )}
+                <div className="mt-5 space-y-3">
+                  <div className="lumi-panel-muted flex items-center gap-3 rounded-xl border p-3"><Building2 className="lumi-accent-text h-4 w-4" /><span className="lumi-muted-strong text-sm">{property?.address || 'Объект не найден'}</span></div>
+                  <div className="lumi-panel-muted flex items-center gap-3 rounded-xl border p-3"><Users className="lumi-accent-text h-4 w-4" /><span className="lumi-muted-strong text-sm">Покупатель: {clientName(buyer)}</span></div>
+                  <div className="lumi-panel-muted flex items-center gap-3 rounded-xl border p-3"><Users className="lumi-accent-text h-4 w-4" /><span className="lumi-muted-strong text-sm">Собственник: {clientName(owner)}</span></div>
+                  {deal.notes && <p className="lumi-muted whitespace-pre-wrap text-sm">{deal.notes}</p>}
                 </div>
-                <div className="flex gap-2 mt-4 justify-end">
-                  <button onClick={() => handleOpenModal(deal)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors">
-                    <Edit className="w-4 h-4 text-gray-600 dark:text-gray-300" />
-                  </button>
-                  <button onClick={() => deleteDeal(deal.id)} className="p-2 hover:bg-red-100 dark:hover:bg-red-900/30 rounded-lg transition-colors">
-                    <Trash2 className="w-4 h-4 text-red-600 dark:text-red-400" />
-                  </button>
+                <div className="mt-4 flex justify-end gap-2">
+                  <button type="button" onClick={() => openModal(deal)} className="lumi-control rounded-lg p-2" aria-label="Редактировать сделку"><Edit className="h-4 w-4" /></button>
+                  <button type="button" onClick={() => void removeDeal(deal)} className="rounded-lg bg-red-500/10 p-2 text-red-500" aria-label="Удалить сделку"><Trash2 className="h-4 w-4" /></button>
                 </div>
-              </motion.div>
+              </motion.article>
             )
           })}
         </div>
       )}
 
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingDeal ? 'Редактировать сделку' : 'Новая сделка'}>
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={event => void handleSubmit(event)} className="space-y-5">
+          {(properties.length === 0 || buyers.length === 0 || owners.length === 0) && (
+            <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
+              Для сделки нужны объект, покупатель и собственник. Создайте отсутствующие карточки в соответствующих разделах.
+            </div>
+          )}
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Объект *</label>
-            <select
-              required
-              value={formData.propertyId}
-              onChange={(e) => {
-                const property = properties.find(p => p.id === e.target.value)
-                setFormData({
-                  ...formData,
-                  propertyId: e.target.value,
-                  ownerId: property?.ownerId || ''
-                })
-              }}
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
-            >
+            <label className="lumi-muted-strong mb-2 block text-sm font-medium">Объект *</label>
+            <select required value={formData.propertyId} onChange={event => handlePropertyChange(event.target.value)} className="lumi-control w-full rounded-xl px-4 py-3 outline-none">
               <option value="">Выберите объект</option>
-              {properties.map(property => (
-                <option key={property.id} value={property.id}>
-                  {property.address}
-                </option>
-              ))}
+              {properties.map(property => <option key={property.id} value={property.id}>{property.address}</option>)}
             </select>
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Покупатель</label>
-            <select
-              value={formData.buyerId}
-              onChange={(e) => setFormData({ ...formData, buyerId: e.target.value })}
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
-            >
+            <label className="lumi-muted-strong mb-2 block text-sm font-medium">Покупатель *</label>
+            <select required value={formData.buyerId} onChange={event => setFormData(current => ({ ...current, buyerId: event.target.value }))} className="lumi-control w-full rounded-xl px-4 py-3 outline-none">
               <option value="">Выберите покупателя</option>
-              {buyers.map(buyer => (
-                <option key={buyer.id} value={buyer.id}>
-                  {buyer.lastName} {buyer.firstName}
-                </option>
-              ))}
+              {buyers.map(buyer => <option key={buyer.id} value={buyer.id}>{clientName(buyer)}{buyer.phone ? ` · ${buyer.phone}` : ''}</option>)}
             </select>
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Собственник</label>
-            <select
-              value={formData.ownerId}
-              onChange={(e) => setFormData({ ...formData, ownerId: e.target.value })}
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
-            >
+            <label className="lumi-muted-strong mb-2 block text-sm font-medium">Собственник *</label>
+            <select required value={formData.ownerId} onChange={event => setFormData(current => ({ ...current, ownerId: event.target.value }))} className="lumi-control w-full rounded-xl px-4 py-3 outline-none">
               <option value="">Выберите собственника</option>
-              {owners.map(owner => (
-                <option key={owner.id} value={owner.id}>
-                  {owner.lastName} {owner.firstName}
-                </option>
-              ))}
+              {owners.map(owner => <option key={owner.id} value={owner.id}>{clientName(owner)}{owner.phone ? ` · ${owner.phone}` : ''}</option>)}
             </select>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Цена *</label>
-              <input
-                type="number"
-                required
-                min="0"
-                step="any"
-                value={formData.price ?? ''}
-                onChange={(e) => setFormData({ ...formData, price: e.target.value ? Number(e.target.value) : undefined })}
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
-                placeholder="0"
-              />
+              <label className="lumi-muted-strong mb-2 block text-sm font-medium">Цена *</label>
+              <input type="number" required min="0" step="any" value={formData.price ?? ''} onChange={event => setFormData(current => ({ ...current, price: event.target.value ? Number(event.target.value) : undefined }))} className="lumi-control w-full rounded-xl px-4 py-3 outline-none" placeholder="0" />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Статус</label>
-              <select
-                value={formData.status}
-                onChange={(e) => setFormData({ ...formData, status: e.target.value as any })}
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
-              >
-                <option value="active">Активна</option>
-                <option value="closed">Закрыта</option>
-                <option value="failed">Отменена</option>
-                <option value="archived">Архив</option>
+              <label className="lumi-muted-strong mb-2 block text-sm font-medium">Статус</label>
+              <select value={formData.status} onChange={event => setFormData(current => ({ ...current, status: event.target.value as Deal['status'] }))} className="lumi-control w-full rounded-xl px-4 py-3 outline-none">
+                {Object.entries(statusLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select>
             </div>
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Заметки</label>
-            <textarea
-              value={formData.notes}
-              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-              rows={3}
-              className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none resize-none"
-              placeholder="Введите заметки..."
-            />
+            <label className="lumi-muted-strong mb-2 block text-sm font-medium">Заметки</label>
+            <textarea value={formData.notes} onChange={event => setFormData(current => ({ ...current, notes: event.target.value }))} rows={4} className="lumi-control w-full resize-none rounded-xl px-4 py-3 outline-none" placeholder="Условия и договорённости по сделке" />
           </div>
-
-          <div className="flex gap-3 pt-4">
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(false)}
-              className="flex-1 px-6 py-3 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl font-medium hover:bg-gray-200 dark:hover:bg-gray-600 transition-all"
-            >
-              Отмена
-            </button>
-            <button
-              type="submit"
-              className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-medium hover:opacity-90 transition-opacity"
-            >
-              {editingDeal ? 'Сохранить' : 'Добавить'}
-            </button>
+          {error && <p className="text-sm text-red-500">{error}</p>}
+          <div className="flex flex-col-reverse gap-3 sm:flex-row">
+            <button type="button" onClick={() => setIsModalOpen(false)} className="lumi-control flex-1 rounded-xl px-6 py-3 font-medium">Отмена</button>
+            <button type="submit" disabled={saving || !properties.length || !buyers.length || !owners.length} className="lumi-gradient-button flex-1 rounded-xl px-6 py-3 font-semibold disabled:opacity-50"><BriefcaseBusiness className="mr-2 inline h-4 w-4" />{saving ? 'Сохраняем…' : editingDeal ? 'Сохранить' : 'Создать сделку'}</button>
           </div>
         </form>
       </Modal>

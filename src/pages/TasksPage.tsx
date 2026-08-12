@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import Modal from '../components/Modal'
 import type { Task } from '../types'
+import { syncNativeReminders } from '../lib/nativeReminders'
 
 const TasksPage = () => {
   const { user } = useAuth()
@@ -66,19 +67,22 @@ const TasksPage = () => {
     }
 
     setIsModalOpen(false)
-    fetchTasks()
+    await fetchTasks()
+    await syncNativeReminders(user.id).catch(() => undefined)
   }
 
   const updateTaskStatus = async (taskId: string, newStatus: 'todo' | 'inprogress' | 'done') => {
     if (!user) return
     await supabase.from('tasks').update({ status: newStatus }).eq('id', taskId).eq('user_id', user.id)
-    fetchTasks()
+    await fetchTasks()
+    await syncNativeReminders(user.id).catch(() => undefined)
   }
 
   const deleteTask = async (taskId: string) => {
     if (!user) return
     await supabase.from('tasks').delete().eq('id', taskId).eq('user_id', user.id)
-    fetchTasks()
+    await fetchTasks()
+    await syncNativeReminders(user.id).catch(() => undefined)
   }
 
   const openModal = (task: Task | null = null) => {

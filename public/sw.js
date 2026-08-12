@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lumicrm-shell-v9'
+const CACHE_NAME = 'lumicrm-shell-v10'
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon-192-v2.png', '/icon-512-v2.png']
 
 self.addEventListener('install', event => {

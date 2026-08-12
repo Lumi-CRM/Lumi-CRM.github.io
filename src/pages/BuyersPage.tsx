@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Plus, Edit, Trash2, Phone, Mail, Search, Star } from 'lucide-react'
+import { Plus, Edit, Trash2, Phone, Mail, Search, Star, X } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { Client } from '../types'
@@ -13,6 +14,7 @@ interface BuyersPageProps {
 
 const BuyersPage = ({ mode = 'sale' }: BuyersPageProps) => {
   const { user } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [buyers, setBuyers] = useState<Client[]>([])
   const [selectedBuyer, setSelectedBuyer] = useState<Client | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -75,10 +77,11 @@ const BuyersPage = ({ mode = 'sale' }: BuyersPageProps) => {
         ? client.roles?.includes('tenant')
         : !client.roles?.includes('tenant') || client.roles?.includes('buyer'))
       setBuyers(visibleBuyers)
-      setSelectedBuyer(current => visibleBuyers.find(client => client.id === current?.id) || visibleBuyers[0] || null)
+      const requestedClientId = searchParams.get('client')
+      setSelectedBuyer(current => visibleBuyers.find(client => client.id === (requestedClientId || current?.id)) || null)
     }
     setLoading(false)
-  }, [mode, user])
+  }, [mode, searchParams, user])
 
   useEffect(() => {
     void fetchData()
@@ -89,6 +92,15 @@ const BuyersPage = ({ mode = 'sale' }: BuyersPageProps) => {
     (buyer.lastName || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
     (buyer.phone || '').includes(searchQuery || '')
   )
+
+  const closeDetails = () => {
+    setSelectedBuyer(null)
+    if (searchParams.has('client')) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('client')
+      setSearchParams(next, { replace: true })
+    }
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-6 lg:flex-row">
@@ -123,10 +135,10 @@ const BuyersPage = ({ mode = 'sale' }: BuyersPageProps) => {
               type="button"
               key={buyer.id}
               onClick={() => setSelectedBuyer(buyer)}
-              className={`lumi-content-auto w-full p-4 text-left rounded-xl cursor-pointer transition-all ${
+              className={`lumi-content-auto w-full rounded-xl border-2 p-4 text-left transition-all ${
                 selectedBuyer?.id === buyer.id
-                  ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200'
-                  : 'bg-gray-50 hover:bg-gray-100'
+                  ? 'lumi-accent-soft border-[var(--lumi-accent)]'
+                  : 'lumi-panel-muted border-transparent hover:border-[var(--lumi-border)]'
               }`}
             >
               <div className="flex items-center gap-3">
@@ -151,7 +163,10 @@ const BuyersPage = ({ mode = 'sale' }: BuyersPageProps) => {
       </div>
 
       {selectedBuyer ? (
-        <div className="lumi-panel flex min-h-[32rem] w-full flex-col overflow-hidden rounded-2xl border lg:min-h-0 lg:flex-1">
+        <div className="lumi-panel fixed inset-0 z-[120] flex max-h-[100dvh] w-full flex-col overflow-hidden border lg:static lg:min-h-0 lg:flex-1 lg:rounded-2xl">
+          <div className="lumi-border flex justify-end border-b p-3 lg:hidden">
+            <button type="button" onClick={closeDetails} className="lumi-control rounded-xl p-2.5" aria-label="Закрыть карточку"><X className="h-6 w-6" /></button>
+          </div>
           <div className="border-b border-gray-100 p-4 sm:p-8">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="flex min-w-0 items-start gap-4 sm:gap-6">
@@ -205,7 +220,7 @@ const BuyersPage = ({ mode = 'sale' }: BuyersPageProps) => {
             </div>
           </div>
 
-          <div className="flex-1 space-y-8 overflow-y-auto p-4 sm:p-8">
+          <div className="flex-1 space-y-8 overflow-y-auto p-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:p-8">
             <div className="mb-8 grid grid-cols-1 gap-8 xl:grid-cols-2">
               <div className="space-y-6">
                 <h3 className="text-lg font-semibold text-gray-900">Контакты</h3>

@@ -4,6 +4,8 @@ import { useAuth, type IconSize, type InterfaceDensity, type NavigationPosition 
 import { themeOptions, useTheme } from '../context/ThemeContext'
 import { registerPushSubscription } from '../lib/pushNotifications'
 import AppDownloadPanel from '../components/AppDownloadPanel'
+import { Capacitor } from '@capacitor/core'
+import { requestNativeNotificationPermission, syncNativeReminders } from '../lib/nativeReminders'
 
 const SettingsPage = () => {
   const { user, updatePreferences, updateNotificationPreferences, updateUser } = useAuth()
@@ -11,7 +13,7 @@ const SettingsPage = () => {
   const [profile, setProfile] = useState({ firstName: user?.firstName ?? '', lastName: user?.lastName ?? '', phone: user?.phone ?? '', position: user?.position ?? 'Риелтор' })
   const [savingProfile, setSavingProfile] = useState(false)
   const [savedMessage, setSavedMessage] = useState('')
-  const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(() => 'Notification' in window ? Notification.permission : 'unsupported')
+  const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(() => Capacitor.isNativePlatform() ? 'default' : 'Notification' in window ? Notification.permission : 'unsupported')
   const [notificationMessage, setNotificationMessage] = useState('')
 
   if (!user) return null
@@ -29,6 +31,18 @@ const SettingsPage = () => {
   }
 
   const requestNotifications = async () => {
+    if (Capacitor.isNativePlatform()) {
+      const granted = await requestNativeNotificationPermission()
+      setPermission(granted ? 'granted' : 'denied')
+      if (granted) {
+        await updateNotificationPreferences({ enabled: true })
+        await syncNativeReminders(user.id)
+        setNotificationMessage('Системные уведомления на этом телефоне включены.')
+      } else {
+        setNotificationMessage('Разрешите уведомления для LumiCRM в настройках телефона.')
+      }
+      return
+    }
     if (!('Notification' in window)) return
     const result = await Notification.requestPermission()
     setPermission(result)

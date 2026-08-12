@@ -2,6 +2,7 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.tsx'
 import './index.css'
+import { installNativeNotificationHandlers } from './lib/nativeReminders'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -33,3 +34,5 @@ for (const eventName of ['load', 'appinstalled', 'orientationchange', 'fullscree
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') void lockMobileOrientation()
 })
+
+void installNativeNotificationHandlers()

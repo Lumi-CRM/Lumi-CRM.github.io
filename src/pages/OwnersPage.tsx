@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Building2, Edit, Mail, MapPin, Phone, Plus, Search, Star, Trash2, User } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { Building2, Edit, Mail, MapPin, Phone, Plus, Search, Star, Trash2, User, X } from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import OwnerForm from '../components/OwnerForm'
@@ -61,6 +61,7 @@ const fullName = (owner: Client) => [owner.lastName, owner.firstName, owner.midd
 const OwnersPage = ({ mode = 'sale' }: OwnersPageProps) => {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const role = mode === 'rent' ? 'landlord' : 'seller'
   const pageTitle = mode === 'rent' ? 'Арендодатели' : 'Собственники'
   const personLabel = mode === 'rent' ? 'арендодателя' : 'собственника'
@@ -97,13 +98,14 @@ const OwnersPage = ({ mode = 'sale' }: OwnersPageProps) => {
         ownerId: item.owner_id,
         listingType: item.listing_type,
       })))
-      setSelectedOwner(current => current ? mappedOwners.find(item => item.id === current.id) || null : null)
+      const requestedClientId = searchParams.get('client')
+      setSelectedOwner(current => mappedOwners.find(item => item.id === (requestedClientId || current?.id)) || null)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : `Не удалось загрузить: ${pageTitle.toLowerCase()}`)
     } finally {
       setLoading(false)
     }
-  }, [pageTitle, role, user])
+  }, [pageTitle, role, searchParams, user])
 
   useEffect(() => { void load() }, [load])
 
@@ -130,6 +132,15 @@ const OwnersPage = ({ mode = 'sale' }: OwnersPageProps) => {
     const { error: deleteError } = await supabase.from('clients').delete().eq('id', owner.id).eq('user_id', user.id)
     if (deleteError) setError(deleteError.message)
     else { setSelectedOwner(null); await load() }
+  }
+
+  const closeDetails = () => {
+    setSelectedOwner(null)
+    if (searchParams.has('client')) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('client')
+      setSearchParams(next, { replace: true })
+    }
   }
 
   if (loading) return <div className="lumi-muted flex items-center justify-center py-24">Загрузка: {pageTitle.toLowerCase()}…</div>
@@ -166,9 +177,12 @@ const OwnersPage = ({ mode = 'sale' }: OwnersPageProps) => {
         </div>
       </aside>
 
-      <main className="lumi-panel min-h-[32rem] w-full overflow-y-auto rounded-2xl border p-4 sm:p-6 lg:min-h-0 lg:flex-1">
+      <main className={`lumi-panel w-full overflow-y-auto border p-4 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] sm:p-6 lg:static lg:block lg:min-h-0 lg:flex-1 lg:rounded-2xl ${selectedOwner ? 'fixed inset-0 z-[120] max-h-[100dvh]' : 'hidden min-h-[32rem]'}`}>
         {selectedOwner ? (
           <div className="space-y-7">
+            <div className="sticky top-0 z-10 -mx-4 -mt-4 mb-1 flex justify-end bg-[var(--lumi-panel)] p-3 sm:-mx-6 sm:-mt-6 lg:hidden">
+              <button type="button" onClick={closeDetails} className="lumi-control rounded-xl p-2.5" aria-label="Закрыть карточку"><X className="h-6 w-6" /></button>
+            </div>
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="flex items-start gap-4">
                 <div className="lumi-accent-bg flex h-20 w-20 shrink-0 items-center justify-center rounded-3xl text-3xl font-bold">{selectedOwner.firstName[0] || '?'}{selectedOwner.lastName[0] || ''}</div>

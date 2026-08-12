@@ -16,7 +16,6 @@ import {
   LogOut,
   Phone,
   RefreshCw,
-  Search,
   Settings,
   Star,
   Users,
@@ -24,6 +23,7 @@ import {
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { completeOverviewItem } from '../lib/crm'
+import { syncNativeReminders } from '../lib/nativeReminders'
 import { printCurrentPage } from '../lib/print'
 import { preloadCoreRoutes, preloadRoute } from '../lib/routeLoaders'
 import { useCrmOverview } from '../hooks/useCrmOverview'
@@ -32,6 +32,7 @@ import ThemeSwitcher from '../components/ThemeSwitcher'
 import InstallAppButton from '../components/InstallAppButton'
 import NotificationCenter from '../components/NotificationCenter'
 import OfflineSyncStatus from '../components/OfflineSyncStatus'
+import GlobalSearch from '../components/GlobalSearch'
 
 const DashboardAnalytics = lazy(() => import('../components/DashboardAnalytics'))
 
@@ -103,6 +104,20 @@ const Dashboard = ({ children }: DashboardProps) => {
     const handle = window.setTimeout(() => preloadCoreRoutes(), 1800)
     return () => window.clearTimeout(handle)
   }, [])
+
+  useEffect(() => {
+    if (!user) return
+    const sync = () => void syncNativeReminders(user.id).catch(() => undefined)
+    sync()
+    window.addEventListener('lumicrm:data-synced', sync)
+    window.addEventListener('lumicrm:remote-data-changed', sync)
+    window.addEventListener('online', sync)
+    return () => {
+      window.removeEventListener('lumicrm:data-synced', sync)
+      window.removeEventListener('lumicrm:remote-data-changed', sync)
+      window.removeEventListener('online', sync)
+    }
+  }, [user])
 
   const agenda = useMemo(() => {
     const tasks = data.tasks.map(task => ({
@@ -383,17 +398,9 @@ const Dashboard = ({ children }: DashboardProps) => {
       </aside>
 
       <main className={`flex min-w-0 flex-1 flex-col overflow-hidden ${user?.preferences.navigationPosition === 'right' ? 'order-1' : 'order-2'}`}>
-        <header className="lumi-header relative z-[60] flex items-center justify-between border-b px-4 py-4 backdrop-blur md:px-8">
-          <div className="relative hidden w-full max-w-md sm:block">
-            <Search className="lumi-muted absolute left-3 top-2.5 h-5 w-5" />
-            <input
-              type="search"
-              placeholder="Глобальный поиск — следующий этап"
-              disabled
-              className="lumi-control w-full rounded-xl py-2.5 pl-10 pr-4 text-sm outline-none disabled:cursor-not-allowed disabled:opacity-70"
-            />
-          </div>
-          <div className="ml-auto flex items-center gap-4">
+        <header className="lumi-header relative z-[60] flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 backdrop-blur md:px-8 md:py-4">
+          <div className="order-2 w-full sm:order-none sm:max-w-md"><GlobalSearch /></div>
+          <div className="ml-auto flex items-center gap-2 sm:gap-4">
             <OfflineSyncStatus />
             <InstallAppButton compact />
             <button type="button" onClick={() => void printCurrentPage()} className="lumi-control hidden rounded-xl p-2.5 sm:inline-flex" title="Сохранить страницу как PDF"><FileDown className="h-5 w-5" /></button>
