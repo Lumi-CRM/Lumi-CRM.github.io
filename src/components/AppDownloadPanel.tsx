@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Download, Laptop, MonitorDown, Share2, Smartphone } from 'lucide-react'
-import { ANDROID_APK_URL, detectAppPlatform, type AppPlatform, WINDOWS_INSTALLER_URL } from '../lib/appDownloads'
+import { ANDROID_APK_URL, APP_RELEASE_PAGE, detectAppPlatform, type AppPlatform, WINDOWS_INSTALLER_URL } from '../lib/appDownloads'
 
 interface InstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -92,6 +92,12 @@ const AppDownloadPanel = () => {
         </div>
       )}
       <p className="lumi-muted mt-4 text-xs leading-5">После скачивания система попросит подтвердить установку — браузер не может нажать это подтверждение вместо пользователя.</p>
+      <p className="lumi-muted mt-2 text-xs leading-5">
+        Если загрузка не началась, откройте{' '}
+        <a className="lumi-accent-text underline" href={APP_RELEASE_PAGE} target="_blank" rel="noreferrer">
+          резервную страницу выпуска
+        </a>.
+      </p>
     </section>
   )
 }

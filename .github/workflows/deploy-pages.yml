@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  workflow_run:
+    workflows: [Release LumiCRM applications]
+    types: [completed]
 
 permissions:
   contents: read
@@ -16,6 +19,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,6 +33,19 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_VAPID_PUBLIC_KEY: ${{ secrets.VITE_VAPID_PUBLIC_KEY }}
+      - name: Add application installers to the public site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist/downloads
+          gh release download \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'LumiCRM-Windows-Setup.exe' \
+            --pattern 'LumiCRM-Android.apk' \
+            --dir dist/downloads \
+            --clobber
+          test -s dist/downloads/LumiCRM-Windows-Setup.exe
+          test -s dist/downloads/LumiCRM-Android.apk
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
