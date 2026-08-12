@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
 import ErrorBoundary from './components/ErrorBoundary'
 import WelcomeModal from './components/WelcomeModal'
+import PortraitGuard from './components/PortraitGuard'
 import { routeLoaders } from './lib/routeLoaders'
 
 const LoginPage = lazy(routeLoaders.login)
@@ -41,6 +42,7 @@ const ProtectedRoute = ({ children }: { children: ReactNode }) => {
 function App() {
   return (
     <ErrorBoundary>
+      <PortraitGuard />
       <Router>
         <ThemeProvider>
           <AuthProvider>

@@ -16,13 +16,20 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
 }
 
 const lockMobileOrientation = async () => {
-  if (!window.matchMedia('(display-mode: standalone)').matches) return
   const orientation = screen.orientation as ScreenOrientation & { lock?: (value: string) => Promise<void> }
+  const isHandheld = window.matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 900
+  if (!isHandheld || !orientation.lock) return
   try {
-    await orientation.lock?.('portrait-primary')
+    await orientation.lock('portrait')
   } catch {
-    // The manifest remains the portable orientation lock for installed PWAs.
+    // iOS and some browsers ignore the Orientation Lock API. PortraitGuard
+    // prevents the CRM itself from becoming an unusable horizontal layout.
   }
 }
 
-window.addEventListener('load', () => void lockMobileOrientation())
+for (const eventName of ['load', 'appinstalled', 'orientationchange', 'fullscreenchange'] as const) {
+  window.addEventListener(eventName, () => void lockMobileOrientation())
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') void lockMobileOrientation()
+})

@@ -31,6 +31,7 @@ import logoLight from '../assets/logo-light.png'
 import ThemeSwitcher from '../components/ThemeSwitcher'
 import InstallAppButton from '../components/InstallAppButton'
 import NotificationCenter from '../components/NotificationCenter'
+import OfflineSyncStatus from '../components/OfflineSyncStatus'
 
 const DashboardAnalytics = lazy(() => import('../components/DashboardAnalytics'))
 
@@ -73,6 +74,25 @@ const Dashboard = ({ children }: DashboardProps) => {
   const { data, loading, error, reload } = useCrmOverview(isHome)
   const [completingId, setCompletingId] = useState<string | null>(null)
   const [dashboardMode, setDashboardMode] = useState<'sale' | 'rent' | 'mortgage'>('sale')
+  const [syncRevision, setSyncRevision] = useState(0)
+
+  useEffect(() => {
+    let timer = 0
+    const refreshAfterSync = () => {
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        setSyncRevision(value => value + 1)
+        if (isHome) void reload()
+      }, 350)
+    }
+    window.addEventListener('lumicrm:data-synced', refreshAfterSync)
+    window.addEventListener('lumicrm:remote-data-changed', refreshAfterSync)
+    return () => {
+      window.clearTimeout(timer)
+      window.removeEventListener('lumicrm:data-synced', refreshAfterSync)
+      window.removeEventListener('lumicrm:remote-data-changed', refreshAfterSync)
+    }
+  }, [isHome, reload])
 
   useEffect(() => {
     const idleWindow = window as Window & { requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number; cancelIdleCallback?: (handle: number) => void }
@@ -374,6 +394,7 @@ const Dashboard = ({ children }: DashboardProps) => {
             />
           </div>
           <div className="ml-auto flex items-center gap-4">
+            <OfflineSyncStatus />
             <InstallAppButton compact />
             <button type="button" onClick={() => void printCurrentPage()} className="lumi-control hidden rounded-xl p-2.5 sm:inline-flex" title="Сохранить страницу как PDF"><FileDown className="h-5 w-5" /></button>
             <ThemeSwitcher />
@@ -391,7 +412,7 @@ const Dashboard = ({ children }: DashboardProps) => {
         </header>
 
         <div className="flex-1 overflow-y-auto p-4 pb-24 md:p-8">
-          {isHome ? renderHome() : children}
+          {isHome ? renderHome() : <div key={syncRevision}>{children}</div>}
         </div>
       </main>
 

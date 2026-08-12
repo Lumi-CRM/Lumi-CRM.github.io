@@ -1,8 +1,18 @@
-const CACHE_NAME = 'lumicrm-shell-v6'
+const CACHE_NAME = 'lumicrm-shell-v7'
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon-192-v2.png', '/icon-512-v2.png']
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)))
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME)
+    let generatedAssets = []
+    try {
+      const response = await fetch('/offline-assets.json', { cache: 'no-store' })
+      if (response.ok) generatedAssets = await response.json()
+    } catch {
+      // The basic app shell is still enough to recover an existing installation.
+    }
+    await Promise.allSettled([...new Set([...APP_SHELL, ...generatedAssets])].map(path => cache.add(path)))
+  })())
   self.skipWaiting()
 })
 
@@ -39,20 +49,17 @@ self.addEventListener('fetch', event => {
   }
 
   if (mustRevalidate) {
-    event.respondWith(
-      fetch(event.request)
-        .then(response => {
-          if (response.ok) {
-            const copy = response.clone()
-            const cacheKey = event.request.mode === 'navigate' ? '/index.html' : event.request
-            caches.open(CACHE_NAME).then(cache => cache.put(cacheKey, copy))
-          }
-          return response
-        })
-        .catch(() => event.request.mode === 'navigate'
-          ? caches.match('/index.html')
-          : caches.match(event.request)),
-    )
+    event.respondWith((async () => {
+      const cached = await caches.match('/index.html')
+      const network = fetch(event.request).then(response => {
+        if (response.ok) caches.open(CACHE_NAME).then(cache => cache.put('/index.html', response.clone()))
+        return response
+      })
+      if (!cached) return network
+      const timeout = new Promise(resolve => setTimeout(() => resolve(cached), 2500))
+      event.waitUntil(network.catch(() => undefined))
+      return Promise.race([network.catch(() => cached), timeout])
+    })())
     return
   }
 
