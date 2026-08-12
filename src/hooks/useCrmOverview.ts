@@ -25,6 +25,15 @@ export function useCrmOverview(enabled: boolean) {
     try {
       setData(await getCrmOverview())
     } catch (requestError) {
+      if (navigator.onLine) {
+        try {
+          await new Promise(resolve => window.setTimeout(resolve, 900))
+          setData(await getCrmOverview())
+          return
+        } catch {
+          // Show the connection message only after a real second failure.
+        }
+      }
       console.error('Failed to load CRM overview:', requestError)
       setError('Не удалось загрузить данные из Supabase. Проверьте подключение и схему базы.')
     } finally {

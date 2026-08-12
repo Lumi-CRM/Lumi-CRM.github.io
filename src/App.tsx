@@ -42,11 +42,11 @@ const ProtectedRoute = ({ children }: { children: ReactNode }) => {
 function App() {
   return (
     <ErrorBoundary>
-      <PortraitGuard />
-      <Router>
-        <ThemeProvider>
-          <AuthProvider>
-            <Suspense fallback={<LoadingScreen />}>
+      <PortraitGuard>
+        <Router>
+          <ThemeProvider>
+            <AuthProvider>
+              <Suspense fallback={<LoadingScreen />}>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/auth/callback" element={<AuthCallbackPage />} />
@@ -80,10 +80,11 @@ function App() {
                 </ProtectedRoute>
               } />
             </Routes>
-            </Suspense>
-          </AuthProvider>
-        </ThemeProvider>
-      </Router>
+              </Suspense>
+            </AuthProvider>
+          </ThemeProvider>
+        </Router>
+      </PortraitGuard>
     </ErrorBoundary>
   )
 }

@@ -264,10 +264,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     if (data.phone !== undefined) metadata.phone = profileData.phone = data.phone
     if (data.position !== undefined) metadata.position = profileData.position = data.position
 
-    const [{ error: authUpdateError }, { error: profileUpdateError }] = await Promise.all([
-      supabase.auth.updateUser({ data: metadata }),
-      supabase.from('profiles').update(profileData).eq('id', user.id),
-    ])
+    const { error: profileUpdateError } = await supabase.from('profiles').update(profileData).eq('id', user.id)
+    const authUpdateError = navigator.onLine
+      ? (await supabase.auth.updateUser({ data: metadata })).error
+      : null
     if (authUpdateError || profileUpdateError) {
       setError('Не удалось обновить данные пользователя')
       return

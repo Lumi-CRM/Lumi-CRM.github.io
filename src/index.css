@@ -414,47 +414,41 @@ body {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
-/* Browsers that do not implement the Orientation Lock API (notably iOS)
-   receive an explicit, non-interactive portrait fallback. */
-.lumi-portrait-guard {
-  display: none;
+/* A functional portrait viewport for browsers that ignore orientation locks.
+   The inverse rotation keeps the CRM vertical instead of showing a warning. */
+.lumi-portrait-stage {
+  min-height: 100%;
 }
 
 @media (orientation: landscape) and (max-height: 600px) and (pointer: coarse) {
-  .lumi-portrait-guard {
+  html,
+  body,
+  #root {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .lumi-portrait-stage {
     position: fixed;
-    inset: 0;
-    z-index: 2147483647;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 1.5rem;
-    color: #f8fafc;
-    background: radial-gradient(circle at top, #173a52, #070b14 68%);
+    top: 50%;
+    left: 50%;
+    width: 100vh;
+    width: 100dvh;
+    height: 100vw;
+    height: 100dvw;
+    overflow: hidden;
+    transform: translate(-50%, -50%) rotate(var(--lumi-landscape-rotation, -90deg));
+    transform-origin: center;
   }
 
-  .lumi-portrait-guard-card {
-    max-width: 32rem;
-    text-align: center;
+  .lumi-portrait-stage .h-screen {
+    height: 100vw;
+    height: 100dvw;
   }
 
-  .lumi-portrait-guard-icon {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.75rem;
-    margin-bottom: 1rem;
-    color: #5eead4;
-  }
-
-  .lumi-portrait-guard h1 {
-    margin: 0;
-    font-size: 1.35rem;
-    font-weight: 700;
-  }
-
-  .lumi-portrait-guard p {
-    margin: 0.55rem 0 0;
-    color: #a9bac8;
+  .lumi-portrait-stage .min-h-screen {
+    min-height: 100vw;
+    min-height: 100dvw;
   }
 }

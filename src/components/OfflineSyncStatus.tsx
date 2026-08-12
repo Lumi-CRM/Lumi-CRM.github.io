@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, CloudOff, RefreshCw } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { flushOfflineQueue, getOfflineQueueCount, type OfflineStatus } from '../lib/offlineTransport'
+import { flushOfflineFiles, getOfflineFileQueueCount, prefetchCrmFiles } from '../lib/offlineFiles'
 import { supabase, warmOfflineWorkspace } from '../lib/supabase'
 
 const getDeviceId = () => {
@@ -20,7 +21,11 @@ const OfflineSyncStatus = () => {
 
   const refresh = useCallback(async () => {
     if (!user) return
-    const pending = await getOfflineQueueCount(user.id)
+    const [dataPending, filePending] = await Promise.all([
+      getOfflineQueueCount(user.id),
+      getOfflineFileQueueCount(user.id),
+    ])
+    const pending = dataPending + filePending
     setStatus(previous => ({ ...previous, online: navigator.onLine, pending }))
   }, [user])
 
@@ -28,20 +33,39 @@ const OfflineSyncStatus = () => {
     if (!user) return
     void refresh()
     if (navigator.onLine) {
-      void flushOfflineQueue()
-      void warmOfflineWorkspace(user.id)
+      void (async () => {
+        await flushOfflineQueue()
+        await flushOfflineFiles(user.id)
+        await warmOfflineWorkspace(user.id)
+        void prefetchCrmFiles(user.id)
+        await refresh()
+      })()
     }
 
-    const handleStatus = (event: Event) => setStatus((event as CustomEvent<OfflineStatus>).detail)
+    const handleStatus = (event: Event) => {
+      const detail = (event as CustomEvent<OfflineStatus>).detail
+      setStatus(previous => ({ ...previous, online: detail.online, syncing: detail.syncing, error: detail.error }))
+      void refresh()
+    }
     const handleOnline = () => {
       setStatus(previous => ({ ...previous, online: true }))
-      void flushOfflineQueue()
-      void warmOfflineWorkspace(user.id, true)
+      void (async () => {
+        await flushOfflineQueue()
+        await flushOfflineFiles(user.id)
+        await warmOfflineWorkspace(user.id, true)
+        void prefetchCrmFiles(user.id)
+        await refresh()
+      })()
     }
     const handleOffline = () => setStatus(previous => ({ ...previous, online: false, syncing: false }))
     window.addEventListener('lumicrm:offline-status', handleStatus)
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
+    window.addEventListener('lumicrm:offline-files-changed', refresh)
+    const syncTimer = window.setInterval(() => {
+      if (!navigator.onLine) return
+      void flushOfflineQueue().then(() => flushOfflineFiles(user.id)).then(() => refresh())
+    }, 30_000)
 
     const deviceId = getDeviceId()
     const channel = supabase
@@ -67,7 +91,9 @@ const OfflineSyncStatus = () => {
       window.removeEventListener('lumicrm:offline-status', handleStatus)
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
+      window.removeEventListener('lumicrm:offline-files-changed', refresh)
       window.removeEventListener('lumicrm:data-synced', announceSync)
+      window.clearInterval(syncTimer)
       void supabase.removeChannel(channel)
       broadcastRef.current = null
     }
@@ -76,6 +102,7 @@ const OfflineSyncStatus = () => {
   const retry = async () => {
     setStatus(previous => ({ ...previous, syncing: true }))
     await flushOfflineQueue()
+    if (user) await flushOfflineFiles(user.id)
     await refresh()
   }
 

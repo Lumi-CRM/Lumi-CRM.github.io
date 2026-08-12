@@ -177,22 +177,40 @@ export const filterRowsForUrl = (rows: Record<string, unknown>[], urlValue: stri
     if (decoded.startsWith('eq.')) {
       const expected = decoded.slice(3)
       result = result.filter(row => valuesEqual(row[field], expected))
+    } else if (decoded.startsWith('neq.')) {
+      const expected = decoded.slice(4)
+      result = result.filter(row => !valuesEqual(row[field], expected))
     } else if (decoded.startsWith('is.')) {
       const expected = decoded.slice(3)
       result = result.filter(row => valuesEqual(row[field], expected))
     } else if (decoded.startsWith('in.(') && decoded.endsWith(')')) {
       const expected = decoded.slice(4, -1).split(',').map(value => value.replace(/^"|"$/g, ''))
       result = result.filter(row => expected.some(value => valuesEqual(row[field], value)))
+    } else if (decoded.startsWith('cs.')) {
+      try {
+        const expected = JSON.parse(decoded.slice(3)) as Record<string, unknown>
+        result = result.filter(row => {
+          const actual = row[field]
+          return actual && typeof actual === 'object'
+            && Object.entries(expected).every(([key, value]) => JSON.stringify((actual as Record<string, unknown>)[key]) === JSON.stringify(value))
+        })
+      } catch {
+        // An unsupported contains expression is left to the exact cache entry.
+      }
     }
   })
 
   const order = url.searchParams.get('order')
   if (order) {
-    const [field, direction] = order.split('.')
+    const clauses = order.split(',').map(clause => clause.split('.'))
     result.sort((left, right) => {
-      const a = String(left[field] ?? '')
-      const b = String(right[field] ?? '')
-      return (direction === 'desc' ? -1 : 1) * a.localeCompare(b)
+      for (const [field, direction] of clauses) {
+        const a = String(left[field] ?? '')
+        const b = String(right[field] ?? '')
+        const comparison = a.localeCompare(b)
+        if (comparison) return (direction === 'desc' ? -1 : 1) * comparison
+      }
+      return 0
     })
   }
   const offset = Number(url.searchParams.get('offset') ?? 0)
@@ -346,19 +364,23 @@ export const createOfflineFetch = (supabaseUrl: string) => async (input: Request
 
   if (method === 'GET' || method === 'HEAD') {
     if (isOnline()) {
+      const cached = await findCachedResponse(request, userId, table)
       const networkRequest = nativeFetch(request.clone())
       void networkRequest.then(response => {
         if (response.ok) return cacheResponse(request, response, userId, table)
       }).catch(() => undefined)
       try {
-        const response = await Promise.race([
-          networkRequest,
-          new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Slow connection')), READ_TIMEOUT_MS)),
-        ])
+        const response = cached
+          ? await Promise.race([
+            networkRequest,
+            new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Slow connection')), READ_TIMEOUT_MS)),
+          ])
+          : await networkRequest
         if (response.status < 500) return response
       } catch {
         // Fall through to the device-local snapshot.
       }
+      if (cached) return cached
     }
     return await findCachedResponse(request, userId, table)
       ?? new Response(JSON.stringify({ message: 'Данные ещё не сохранены на этом устройстве' }), {

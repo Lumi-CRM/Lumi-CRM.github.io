@@ -3,6 +3,8 @@ import { Check, Link2, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { createSignedFileUrls, listCrmFiles } from '../lib/files'
+import { flushOfflineFiles, getOfflineFileQueueCount } from '../lib/offlineFiles'
+import { flushOfflineQueue } from '../lib/offlineTransport'
 import type { Property } from '../types'
 
 const SharePropertyButton = ({ property }: { property: Property }) => {
@@ -15,6 +17,10 @@ const SharePropertyButton = ({ property }: { property: Property }) => {
     if (!user) return
     setLoading(true); setError(''); setCopied(false)
     try {
+      if (!navigator.onLine) throw new Error('Публичную ссылку можно создать после подключения к интернету')
+      await flushOfflineQueue()
+      await flushOfflineFiles(user.id)
+      if (await getOfflineFileQueueCount(user.id)) throw new Error('Сначала дождитесь загрузки фотографий в облако')
       const files = await listCrmFiles({ userId: user.id, bucket: 'crm-images', propertyId: property.id })
       const urls = await createSignedFileUrls(files, 365 * 24 * 3600)
       const snapshot = {

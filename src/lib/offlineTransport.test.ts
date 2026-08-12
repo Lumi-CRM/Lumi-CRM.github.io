@@ -13,6 +13,16 @@ test('offline cache applies PostgREST filters, sorting and limits', () => {
   assert.deepEqual(result.map(row => row.id), ['3'])
 })
 
+test('offline cache excludes archived rows and supports JSON contains filters', () => {
+  const rows = [
+    { id: '1', status: 'available', metadata: { kind: 'property_showing' } },
+    { id: '2', status: 'archived', metadata: { kind: 'property_showing' } },
+    { id: '3', status: 'available', metadata: { kind: 'call' } },
+  ]
+  const result = filterRowsForUrl(rows, 'https://example.test/rest/v1/properties?status=neq.archived&metadata=cs.%7B%22kind%22%3A%22property_showing%22%7D')
+  assert.deepEqual(result.map(row => row.id), ['1'])
+})
+
 test('offline inserts receive durable client identifiers', () => {
   const prepared = prepareOfflinePayload('properties', { user_id: 'u1', address: 'Курск' }) as Record<string, unknown>
   assert.match(String(prepared.id), /^[0-9a-f-]{36}$/)

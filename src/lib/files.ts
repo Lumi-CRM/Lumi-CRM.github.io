@@ -1,4 +1,14 @@
 import { supabase } from './supabase'
+import {
+  cacheCrmFileBlob,
+  createLocalCrmFileUrl,
+  deletePendingCrmFile,
+  isPendingCrmFile,
+  listPendingCrmFiles,
+  queueOfflineFile,
+  queueOfflineFileDeletion,
+  setPendingPrimaryFile,
+} from './offlineFiles'
 
 export type CrmBucket = 'crm-documents' | 'crm-images'
 
@@ -74,8 +84,21 @@ export const listCrmFiles = async ({ userId, bucket, clientId, propertyId }: Fil
 
   const { data, error } = await query
   if (error) throw error
-  return (data || []) as CrmFileRecord[]
+  const cloudFiles = (data || []) as CrmFileRecord[]
+  const pendingFiles = await listPendingCrmFiles({ userId, bucket, clientId, propertyId })
+  const merged = new Map(cloudFiles.map(file => [file.id, file]))
+  pendingFiles.forEach(file => merged.set(file.id, file))
+  return Array.from(merged.values()).sort((left, right) => {
+    if (left.is_primary !== right.is_primary) return left.is_primary ? -1 : 1
+    return right.created_at.localeCompare(left.created_at)
+  })
 }
+
+const isConnectivityError = (error: { message?: string; statusCode?: string | number } | null) =>
+  !navigator.onLine || Boolean(error && (
+    Number(error.statusCode) >= 500
+    || /fetch|network|load failed|timeout|connection|offline/i.test(error.message ?? '')
+  ))
 
 export const uploadCrmFile = async ({
   userId,
@@ -94,43 +117,64 @@ export const uploadCrmFile = async ({
       ? `clients/${clientId}`
       : 'general'
   const storagePath = `${userId}/${entityPath}/${toSafeSegment(category)}/${crypto.randomUUID()}-${safeFileName(file.name)}`
+  const now = new Date().toISOString()
+  const record: CrmFileRecord = {
+    id: crypto.randomUUID(),
+    user_id: userId,
+    client_id: clientId || null,
+    property_id: propertyId || null,
+    deal_id: null,
+    task_id: null,
+    bucket,
+    storage_path: storagePath,
+    name: file.name,
+    mime_type: file.type || null,
+    size_bytes: file.size,
+    category,
+    description: description?.trim() || null,
+    is_primary: false,
+    created_at: now,
+    updated_at: now,
+  }
+
+  if (!navigator.onLine) return queueOfflineFile(record, file)
 
   const { error: uploadError } = await supabase.storage
     .from(bucket)
     .upload(storagePath, file, { cacheControl: '86400', upsert: false, contentType: file.type || undefined })
-  if (uploadError) throw uploadError
+  if (uploadError) {
+    if (isConnectivityError(uploadError)) return queueOfflineFile(record, file)
+    throw uploadError
+  }
 
   const { data, error: databaseError } = await supabase
     .from('crm_files')
-    .insert({
-      user_id: userId,
-      client_id: clientId || null,
-      property_id: propertyId || null,
-      bucket,
-      storage_path: storagePath,
-      name: file.name,
-      mime_type: file.type || null,
-      size_bytes: file.size,
-      category,
-      description: description?.trim() || null,
-      is_primary: false,
-    })
+    .insert(record)
     .select('*')
     .single()
 
   if (databaseError) {
+    if (isConnectivityError(databaseError)) return queueOfflineFile(record, file)
     await supabase.storage.from(bucket).remove([storagePath])
     throw databaseError
   }
 
-  return data as CrmFileRecord
+  const saved = data as CrmFileRecord
+  await cacheCrmFileBlob(saved, file)
+  return saved
 }
 
 export const createSignedFileUrl = async (file: CrmFileRecord, expiresIn = 3600) => {
+  const localUrl = await createLocalCrmFileUrl(file)
+  if (localUrl) return localUrl
+  if (!navigator.onLine) throw new Error('Этот файл ещё не сохранён на телефоне для офлайн-доступа')
   const { data, error } = await supabase.storage
     .from(file.bucket)
     .createSignedUrl(file.storage_path, expiresIn)
   if (error) throw error
+  void fetch(data.signedUrl).then(async response => {
+    if (response.ok) await cacheCrmFileBlob(file, await response.blob())
+  }).catch(() => undefined)
   return data.signedUrl
 }
 
@@ -138,11 +182,28 @@ export const createSignedFileUrls = async (files: CrmFileRecord[], expiresIn = 6
   if (files.length === 0) return new Map<string, string>()
   const bucket = files[0].bucket
   if (files.some(file => file.bucket !== bucket)) throw new Error('Файлы должны относиться к одному хранилищу')
+  const result = new Map<string, string>()
+  const remoteFiles: CrmFileRecord[] = []
+  for (const file of files) {
+    if (!navigator.onLine || await isPendingCrmFile(file)) {
+      const localUrl = await createLocalCrmFileUrl(file)
+      if (localUrl) result.set(file.storage_path, localUrl)
+    } else remoteFiles.push(file)
+  }
+  if (remoteFiles.length === 0 || !navigator.onLine) return result
   const { data, error } = await supabase.storage
     .from(bucket)
-    .createSignedUrls(files.map(file => file.storage_path), expiresIn)
+    .createSignedUrls(remoteFiles.map(file => file.storage_path), expiresIn)
   if (error) throw error
-  return new Map((data || []).flatMap(item => item.signedUrl && item.path ? [[item.path, item.signedUrl] as const] : []))
+  for (let index = 0; index < remoteFiles.length; index += 1) {
+    const item = data?.[index]
+    if (!item?.signedUrl || !item.path) continue
+    result.set(item.path, item.signedUrl)
+    void fetch(item.signedUrl).then(async response => {
+      if (response.ok) await cacheCrmFileBlob(remoteFiles[index], await response.blob())
+    }).catch(() => undefined)
+  }
+  return result
 }
 
 export const setPrimaryPropertyImage = async (file: CrmFileRecord) => {
@@ -161,6 +222,7 @@ export const setPrimaryPropertyImage = async (file: CrmFileRecord) => {
     .eq('id', file.id)
     .eq('user_id', file.user_id)
   if (error) throw error
+  await setPendingPrimaryFile(file)
 }
 
 export const optimizeImageForUpload = async (file: File) => {
@@ -202,10 +264,20 @@ export const mapWithConcurrency = async <T, R>(items: T[], concurrency: number, 
 }
 
 export const deleteCrmFile = async (file: CrmFileRecord) => {
+  if (await deletePendingCrmFile(file)) return
+  if (!navigator.onLine) {
+    await queueOfflineFileDeletion(file)
+    const { error } = await supabase.from('crm_files').delete().eq('id', file.id)
+    if (error) throw error
+    return
+  }
   const { error: storageError } = await supabase.storage
     .from(file.bucket)
     .remove([file.storage_path])
-  if (storageError && !/not found/i.test(storageError.message)) throw storageError
+  if (storageError && !/not found/i.test(storageError.message)) {
+    if (isConnectivityError(storageError)) await queueOfflineFileDeletion(file)
+    else throw storageError
+  }
 
   const { error: databaseError } = await supabase.from('crm_files').delete().eq('id', file.id)
   if (databaseError) throw databaseError

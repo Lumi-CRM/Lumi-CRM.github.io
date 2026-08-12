@@ -28,6 +28,10 @@ const WORKSPACE_TABLES = [
   'client_requirements',
   'monthly_plans',
   'property_shares',
+  'notifications',
+  'push_subscriptions',
+  'crm_imports',
+  'crm_import_rows',
 ] as const
 
 export const warmOfflineWorkspace = async (userId: string, force = false) => {
