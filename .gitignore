@@ -16,6 +16,7 @@ tmp
 *.tsbuildinfo
 .vite-dev*.log
 .codex-http*.log
+supabase/.temp/
 
 # Editor directories and files
 .vscode/*

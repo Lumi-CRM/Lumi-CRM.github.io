@@ -19,6 +19,7 @@ export interface NotificationPreferences {
   enabled: boolean
   newRequests: boolean
   taskReminders: boolean
+  callReminders: boolean
   meetingReminders: boolean
   reminderMinutes: number
 }
@@ -68,6 +69,7 @@ const defaultNotificationPreferences: NotificationPreferences = {
   enabled: true,
   newRequests: true,
   taskReminders: true,
+  callReminders: true,
   meetingReminders: true,
   reminderMinutes: 60,
 }

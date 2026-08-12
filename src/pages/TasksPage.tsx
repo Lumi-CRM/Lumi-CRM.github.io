@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { Plus, Edit, Trash2, Calendar, Clock } from 'lucide-react'
-import { motion } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import Modal from '../components/Modal'
@@ -163,12 +162,9 @@ const TasksPage = () => {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 flex-1">
-        {(['todo', 'inprogress', 'done'] as const).map((s, i) => (
-          <motion.div
+        {(['todo', 'inprogress', 'done'] as const).map((s) => (
+          <div
             key={s}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.1 }}
             className="bg-gray-50 dark:bg-gray-800 rounded-2xl p-6"
           >
             <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
@@ -177,12 +173,9 @@ const TasksPage = () => {
               <span className="text-gray-500 dark:text-gray-400 font-normal">({tasksByStatus[s].length})</span>
             </h2>
             <div className="space-y-4">
-              {tasksByStatus[s].map((task, j) => (
-                <motion.div
+              {tasksByStatus[s].map((task) => (
+                <div
                   key={task.id}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.1 + j * 0.05 }}
                   className="bg-white dark:bg-gray-700 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-600"
                 >
                   <div className="flex items-start justify-between">
@@ -227,10 +220,10 @@ const TasksPage = () => {
                       {s === 'todo' ? 'Начать' : 'Завершить'}
                     </button>
                   )}
-                </motion.div>
+                </div>
               ))}
             </div>
-          </motion.div>
+          </div>
         ))}
       </div>
 

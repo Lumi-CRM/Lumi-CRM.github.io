@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { Archive, Plus, Edit, Trash2, Search, Star, Eye, Building2 } from 'lucide-react'
-import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -173,13 +172,10 @@ const PropertiesPage = () => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredProperties.map((prop, i) => (
-            <motion.div
+          {filteredProperties.map((prop) => (
+            <div
               key={prop.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: Math.min(i, 6) * 0.03 }}
-              className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden hover:shadow-md transition-all"
+              className="lumi-content-auto bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden hover:shadow-md transition-all"
             >
               <div className="flex h-48 items-center justify-center overflow-hidden bg-gradient-to-br from-blue-100 to-indigo-100 dark:from-blue-900/30 dark:to-indigo-900/30">
                 {prop.coverUrl ? <img src={prop.coverUrl} alt={`Главное фото: ${prop.address}`} loading="lazy" decoding="async" className="h-full w-full object-cover" /> : <div className="text-center">
@@ -249,7 +245,7 @@ const PropertiesPage = () => {
                   </button>
                 </div>
               </div>
-            </motion.div>
+            </div>
           ))}
         </div>
       )}

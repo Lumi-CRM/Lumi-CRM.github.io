@@ -1,0 +1,5 @@
+project_id = "rgvbgwiojxoopzfzwgli"
+
+[functions.dispatch-reminders]
+verify_jwt = false
+

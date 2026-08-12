@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Plus, Edit, Trash2, Phone, Mail, Search, Star } from 'lucide-react'
-import { motion } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { Client } from '../types'
@@ -119,15 +118,12 @@ const BuyersPage = ({ mode = 'sale' }: BuyersPageProps) => {
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {loading && <div className="lumi-muted py-10 text-center">Загрузка…</div>}
-          {filteredBuyers.map((buyer, i) => (
-            <motion.button
+          {filteredBuyers.map((buyer) => (
+            <button
               type="button"
               key={buyer.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.05 }}
               onClick={() => setSelectedBuyer(buyer)}
-              className={`w-full p-4 text-left rounded-xl cursor-pointer transition-all ${
+              className={`lumi-content-auto w-full p-4 text-left rounded-xl cursor-pointer transition-all ${
                 selectedBuyer?.id === buyer.id
                   ? 'bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200'
                   : 'bg-gray-50 hover:bg-gray-100'
@@ -149,7 +145,7 @@ const BuyersPage = ({ mode = 'sale' }: BuyersPageProps) => {
                   Бюджет: {buyer.budget ? `${buyer.budget.toLocaleString('ru-RU')} ₽` : 'Не указан'}
                 </p>
               </div>
-            </motion.button>
+            </button>
           ))}
         </div>
       </div>

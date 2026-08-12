@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   AlertCircle,
   Archive,
@@ -22,9 +22,10 @@ import {
   Users,
 } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { motion } from 'framer-motion'
 import { useAuth } from '../context/AuthContext'
 import { completeOverviewItem } from '../lib/crm'
+import { printCurrentPage } from '../lib/print'
+import { preloadCoreRoutes, preloadRoute } from '../lib/routeLoaders'
 import { useCrmOverview } from '../hooks/useCrmOverview'
 import logoLight from '../assets/logo-light.png'
 import ThemeSwitcher from '../components/ThemeSwitcher'
@@ -72,6 +73,16 @@ const Dashboard = ({ children }: DashboardProps) => {
   const { data, loading, error, reload } = useCrmOverview(isHome)
   const [completingId, setCompletingId] = useState<string | null>(null)
   const [dashboardMode, setDashboardMode] = useState<'sale' | 'rent' | 'mortgage'>('sale')
+
+  useEffect(() => {
+    const idleWindow = window as Window & { requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number; cancelIdleCallback?: (handle: number) => void }
+    if (idleWindow.requestIdleCallback) {
+      const handle = idleWindow.requestIdleCallback(() => preloadCoreRoutes(), { timeout: 3500 })
+      return () => idleWindow.cancelIdleCallback?.(handle)
+    }
+    const handle = window.setTimeout(() => preloadCoreRoutes(), 1800)
+    return () => window.clearTimeout(handle)
+  }, [])
 
   const agenda = useMemo(() => {
     const tasks = data.tasks.map(task => ({
@@ -168,15 +179,12 @@ const Dashboard = ({ children }: DashboardProps) => {
       )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {stats.map((stat, index) => {
+        {stats.map((stat) => {
           const Icon = stat.icon
           return (
-            <motion.div
+            <div
               key={stat.label}
-              initial={{ opacity: 0, y: 14 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.05 }}
-              className="lumi-panel rounded-2xl border p-5"
+              className="lumi-panel rounded-2xl border p-5 transition-opacity"
             >
               <div className="flex items-center justify-between">
                 <div>
@@ -187,7 +195,7 @@ const Dashboard = ({ children }: DashboardProps) => {
                   <Icon className="h-6 w-6 text-white" />
                 </div>
               </div>
-            </motion.div>
+            </div>
           )
         })}
       </div>
@@ -328,6 +336,8 @@ const Dashboard = ({ children }: DashboardProps) => {
                 type="button"
                 key={item.id}
                 onClick={() => navigate(item.id)}
+                onPointerEnter={() => preloadRoute(item.id)}
+                onFocus={() => preloadRoute(item.id)}
                 className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-left text-sm transition ${
                   active
                     ? 'lumi-nav-item-active font-medium'
@@ -365,7 +375,7 @@ const Dashboard = ({ children }: DashboardProps) => {
           </div>
           <div className="ml-auto flex items-center gap-4">
             <InstallAppButton compact />
-            <button type="button" onClick={() => window.print()} className="lumi-control hidden rounded-xl p-2.5 sm:inline-flex" title="Сохранить страницу как PDF"><FileDown className="h-5 w-5" /></button>
+            <button type="button" onClick={() => void printCurrentPage()} className="lumi-control hidden rounded-xl p-2.5 sm:inline-flex" title="Сохранить страницу как PDF"><FileDown className="h-5 w-5" /></button>
             <ThemeSwitcher />
             <NotificationCenter />
             <div className="flex items-center gap-3">
@@ -390,7 +400,7 @@ const Dashboard = ({ children }: DashboardProps) => {
           const Icon = item.icon
           const active = isActive(item.id)
           return (
-            <button type="button" key={item.id} onClick={() => navigate(item.id)} className={`flex min-w-[4.6rem] shrink-0 flex-col items-center gap-1 rounded-xl px-2 py-2 text-[0.68rem] ${active ? 'lumi-nav-item-active' : 'lumi-nav-item'}`}>
+            <button type="button" key={item.id} onPointerEnter={() => preloadRoute(item.id)} onFocus={() => preloadRoute(item.id)} onClick={() => navigate(item.id)} className={`flex min-w-[4.6rem] shrink-0 flex-col items-center gap-1 rounded-xl px-2 py-2 text-[0.68rem] ${active ? 'lumi-nav-item-active' : 'lumi-nav-item'}`}>
               <Icon style={{ width: 'var(--lumi-nav-icon-size)', height: 'var(--lumi-nav-icon-size)' }} />
               <span>{item.label}</span>
             </button>

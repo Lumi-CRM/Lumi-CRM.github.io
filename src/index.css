@@ -373,16 +373,40 @@ body {
   color: var(--lumi-text) !important;
 }
 
+.lumi-content-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 18rem;
+}
+
 @media (max-width: 640px) {
   .lumi-shell h1 { font-size: 1.65rem; line-height: 1.2; }
   .lumi-shell button, .lumi-shell input, .lumi-shell select, .lumi-shell textarea { max-width: 100%; }
   .lumi-shell .recharts-wrapper, .lumi-shell .recharts-surface { max-width: 100% !important; }
 }
 
+@page {
+  size: A4 portrait;
+  margin: 12mm;
+}
+
 @media print {
-  .lumi-sidebar, .lumi-header, nav, button, [data-no-print] { display: none !important; }
-  html, body, #root, .lumi-shell { background: #fff !important; color: #111 !important; overflow: visible !important; }
-  .lumi-panel, .lumi-panel-muted { break-inside: avoid; box-shadow: none !important; border-color: #ddd !important; }
+  * { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .lumi-sidebar, .lumi-header, nav, button, [data-no-print], [data-print-hidden] { display: none !important; }
+  html, body, #root, .lumi-shell { width: auto !important; min-width: 0 !important; height: auto !important; min-height: 0 !important; background: #fff !important; color: #111 !important; overflow: visible !important; }
+  .lumi-shell { display: block !important; padding: 0 !important; }
+  .lumi-shell > main, .lumi-shell main, .lumi-shell .overflow-y-auto, .lumi-shell .overflow-hidden { display: block !important; width: auto !important; height: auto !important; min-height: 0 !important; overflow: visible !important; }
+  .lumi-shell main > div { padding: 0 !important; }
+  .lumi-panel, .lumi-panel-muted, .lumi-control { background: #fff !important; color: #111 !important; box-shadow: none !important; border-color: #d1d5db !important; }
+  .lumi-text, .lumi-muted, .lumi-muted-strong, .lumi-accent-text { color: #111 !important; }
+  .lumi-content-auto { content-visibility: visible !important; contain: none !important; }
+  [data-print-list] { display: block !important; }
+  [data-print-list] > *, [data-print-item] { margin: 0 0 7mm !important; break-inside: avoid-page; page-break-inside: avoid; }
+  h1, h2, h3 { break-after: avoid-page; page-break-after: avoid; }
+  table { width: 100% !important; border-collapse: collapse; }
+  thead { display: table-header-group; }
+  tfoot { display: table-footer-group; }
+  tr, img { break-inside: avoid-page; page-break-inside: avoid; }
+  a { color: #111 !important; text-decoration: none !important; }
 }
 
 .glass {

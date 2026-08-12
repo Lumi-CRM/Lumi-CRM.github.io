@@ -151,7 +151,7 @@ const OwnersPage = ({ mode = 'sale' }: OwnersPageProps) => {
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
           {visibleOwners.map(owner => (
-            <button key={owner.id} type="button" onClick={() => setSelectedOwner(owner)} className={`w-full rounded-xl border-2 p-4 text-left transition ${selectedOwner?.id === owner.id ? 'border-blue-500 lumi-accent-soft' : 'lumi-panel border-transparent'}`}>
+            <button key={owner.id} type="button" onClick={() => setSelectedOwner(owner)} className={`lumi-content-auto w-full rounded-xl border-2 p-4 text-left transition ${selectedOwner?.id === owner.id ? 'border-blue-500 lumi-accent-soft' : 'lumi-panel border-transparent'}`}>
               <div className="flex items-center gap-3">
                 <div className="lumi-accent-bg flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-lg font-bold">{owner.firstName[0] || '?'}{owner.lastName[0] || ''}</div>
                 <div className="min-w-0 flex-1">

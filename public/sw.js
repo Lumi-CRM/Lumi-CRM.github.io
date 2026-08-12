@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lumicrm-shell-v5'
+const CACHE_NAME = 'lumicrm-shell-v6'
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon-192-v2.png', '/icon-512-v2.png']
 
 self.addEventListener('install', event => {
@@ -8,11 +8,13 @@ self.addEventListener('install', event => {
 
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(keys => Promise.all(
-      keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key)),
-    )),
+    Promise.all([
+      caches.keys().then(keys => Promise.all(
+        keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key)),
+      )),
+      self.clients.claim(),
+    ]),
   )
-  self.clients.claim()
 })
 
 self.addEventListener('fetch', event => {
@@ -20,8 +22,21 @@ self.addEventListener('fetch', event => {
 
   const destination = event.request.destination
   const mustRevalidate = event.request.mode === 'navigate'
-    || destination === 'script'
-    || destination === 'style'
+
+  if ((destination === 'script' || destination === 'style' || destination === 'image') && new URL(event.request.url).pathname.startsWith('/assets/')) {
+    event.respondWith(
+      caches.match(event.request).then(cached => {
+        const refreshed = fetch(event.request).then(response => {
+          if (response.ok) caches.open(CACHE_NAME).then(cache => cache.put(event.request, response.clone()))
+          return response
+        })
+        if (!cached) return refreshed
+        event.waitUntil(refreshed.catch(() => undefined))
+        return cached
+      }),
+    )
+    return
+  }
 
   if (mustRevalidate) {
     event.respondWith(
@@ -66,6 +81,8 @@ self.addEventListener('push', event => {
     badge: '/icon-192-v2.png',
     data: { link: payload.link || '/' },
     tag: payload.tag || 'lumicrm-notification',
+    timestamp: payload.timestamp || Date.now(),
+    requireInteraction: Boolean(payload.requireInteraction),
   }))
 })
 

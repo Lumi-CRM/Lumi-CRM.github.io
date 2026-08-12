@@ -3,6 +3,7 @@ import { Bell, BellRing, CheckCheck, LoaderCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { registerPushSubscription } from '../lib/pushNotifications'
 
 interface NotificationItem {
   id: string
@@ -19,7 +20,7 @@ const NotificationCenter = () => {
   const containerRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<NotificationItem[]>([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     if (!user) return
@@ -27,6 +28,30 @@ const NotificationCenter = () => {
     const { data, error } = await supabase.from('notifications').select('id,title,body,link,read_at,created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(30)
     if (!error) setItems((data ?? []) as NotificationItem[])
     setLoading(false)
+  }, [user])
+
+  useEffect(() => { void load() }, [load])
+
+  useEffect(() => {
+    if (!user) return
+    if ('Notification' in window && Notification.permission === 'granted') {
+      void registerPushSubscription(user.id).catch(() => undefined)
+    }
+
+    const channel = supabase
+      .channel(`notifications:${user.id}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user.id}`,
+      }, payload => {
+        const notification = payload.new as NotificationItem
+        setItems(current => [notification, ...current.filter(item => item.id !== notification.id)].slice(0, 30))
+      })
+      .subscribe()
+
+    return () => { void supabase.removeChannel(channel) }
   }, [user])
 
   useEffect(() => {

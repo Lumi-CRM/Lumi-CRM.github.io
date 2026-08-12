@@ -4,26 +4,27 @@ import { AuthProvider, useAuth } from './context/AuthContext'
 import { ThemeProvider } from './context/ThemeContext'
 import ErrorBoundary from './components/ErrorBoundary'
 import WelcomeModal from './components/WelcomeModal'
+import { routeLoaders } from './lib/routeLoaders'
 
-const LoginPage = lazy(() => import('./pages/LoginPage'))
-const AuthCallbackPage = lazy(() => import('./pages/AuthCallbackPage'))
-const SetPasswordPage = lazy(() => import('./pages/SetPasswordPage'))
-const Dashboard = lazy(() => import('./pages/Dashboard'))
-const PropertiesPage = lazy(() => import('./pages/PropertiesPage'))
-const PropertyDetailPage = lazy(() => import('./pages/PropertyDetailPage'))
-const OwnersPage = lazy(() => import('./pages/OwnersPage'))
-const BuyersPage = lazy(() => import('./pages/BuyersPage'))
-const CalendarPage = lazy(() => import('./pages/CalendarPage'))
-const TasksPage = lazy(() => import('./pages/TasksPage'))
-const DealsPage = lazy(() => import('./pages/DealsPage'))
-const DocumentsPage = lazy(() => import('./pages/DocumentsPage'))
-const GalleryPage = lazy(() => import('./pages/GalleryPage'))
-const ArchivePage = lazy(() => import('./pages/ArchivePage'))
-const FavoritesPage = lazy(() => import('./pages/FavoritesPage'))
-const SettingsPage = lazy(() => import('./pages/SettingsPage'))
-const CallsPage = lazy(() => import('./pages/CallsPage'))
-const MonthlyPlanPage = lazy(() => import('./pages/MonthlyPlanPage'))
-const PublicPropertyPage = lazy(() => import('./pages/PublicPropertyPage'))
+const LoginPage = lazy(routeLoaders.login)
+const AuthCallbackPage = lazy(routeLoaders.authCallback)
+const SetPasswordPage = lazy(routeLoaders.setPassword)
+const Dashboard = lazy(routeLoaders.dashboard)
+const PropertiesPage = lazy(routeLoaders.properties)
+const PropertyDetailPage = lazy(routeLoaders.propertyDetail)
+const OwnersPage = lazy(routeLoaders.owners)
+const BuyersPage = lazy(routeLoaders.buyers)
+const CalendarPage = lazy(routeLoaders.calendar)
+const TasksPage = lazy(routeLoaders.tasks)
+const DealsPage = lazy(routeLoaders.deals)
+const DocumentsPage = lazy(routeLoaders.documents)
+const GalleryPage = lazy(routeLoaders.gallery)
+const ArchivePage = lazy(routeLoaders.archive)
+const FavoritesPage = lazy(routeLoaders.favorites)
+const SettingsPage = lazy(routeLoaders.settings)
+const CallsPage = lazy(routeLoaders.calls)
+const MonthlyPlanPage = lazy(routeLoaders.plan)
+const PublicPropertyPage = lazy(routeLoaders.publicProperty)
 
 const LoadingScreen = () => (
   <div className="lumi-shell lumi-muted flex min-h-screen items-center justify-center">

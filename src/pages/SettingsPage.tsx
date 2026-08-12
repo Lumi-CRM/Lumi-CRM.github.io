@@ -100,12 +100,14 @@ const SettingsPage = () => {
           {[
             { key: 'newRequests' as const, label: 'Новые заявки', icon: Bell },
             { key: 'taskReminders' as const, label: 'Напоминания о задачах', icon: Maximize2 },
+            { key: 'callReminders' as const, label: 'Напоминания о звонках', icon: Bell },
             { key: 'meetingReminders' as const, label: 'Напоминания о встречах', icon: BellRing },
           ].map(item => {
             const Icon = item.icon
             return <div key={item.key} className="lumi-border flex items-center justify-between border-b py-4 last:border-0"><div className="flex items-center gap-3"><div className="lumi-control rounded-xl p-3"><Icon className="h-5 w-5" /></div><span className="lumi-text font-medium">{item.label}</span></div><Toggle label={item.label} value={user.notificationPreferences[item.key]} onChange={value => void updateNotificationPreferences({ [item.key]: value })} /></div>
           })}
         </div>
+        <p className="lumi-muted mt-4 text-sm">Для задач, звонков и встреч со временем LumiCRM напоминает за день, за час, за 5 минут и точно в назначенный момент.</p>
         <div className="lumi-panel-muted mt-5 flex flex-col items-start justify-between gap-4 rounded-2xl border p-4 sm:flex-row sm:items-center">
           <div className="flex items-start gap-3"><Smartphone className="lumi-accent-text mt-0.5 h-5 w-5" /><div><p className="lumi-text font-medium">Разрешение на этом устройстве</p><p className="lumi-muted mt-1 text-sm">{permission === 'granted' ? 'Разрешено' : permission === 'denied' ? 'Заблокировано в браузере' : permission === 'unsupported' ? 'Не поддерживается' : 'Ещё не запрошено'}</p></div></div>
           {permission === 'default' && <button type="button" onClick={() => void requestNotifications()} className="lumi-gradient-button rounded-xl px-4 py-2.5 text-sm font-semibold">Включить</button>}
