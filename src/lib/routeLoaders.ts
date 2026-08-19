@@ -15,6 +15,7 @@ export const routeLoaders = {
   documents: () => import('../pages/DocumentsPage'),
   gallery: () => import('../pages/GalleryPage'),
   archive: () => import('../pages/ArchivePage'),
+  trash: () => import('../pages/TrashPage'),
   favorites: () => import('../pages/FavoritesPage'),
   settings: () => import('../pages/SettingsPage'),
   publicProperty: () => import('../pages/PublicPropertyPage'),
@@ -34,6 +35,7 @@ const routeByPath: Record<string, () => Promise<unknown>> = {
   '/documents': routeLoaders.documents,
   '/gallery': routeLoaders.gallery,
   '/archive': routeLoaders.archive,
+  '/trash': routeLoaders.trash,
   '/favorites': routeLoaders.favorites,
   '/settings': routeLoaders.settings,
 }

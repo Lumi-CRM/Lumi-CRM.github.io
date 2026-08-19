@@ -62,9 +62,9 @@ const DealsPage = () => {
     setError('')
     try {
       const [dealsResult, propertiesResult, clientsResult] = await Promise.all([
-        supabase.from('deals').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
-        supabase.from('properties').select('id,address,price,owner_id').eq('user_id', user.id).order('created_at', { ascending: false }),
-        supabase.from('clients').select('id,first_name,last_name,phone,type,roles').eq('user_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('deals').select('*').eq('user_id', user.id).is('deleted_at', null).order('created_at', { ascending: false }),
+        supabase.from('properties').select('id,address,price,owner_id').eq('user_id', user.id).is('deleted_at', null).order('created_at', { ascending: false }),
+        supabase.from('clients').select('id,first_name,last_name,phone,type,roles').eq('user_id', user.id).is('deleted_at', null).order('created_at', { ascending: false }),
       ])
       const firstError = [dealsResult.error, propertiesResult.error, clientsResult.error].find(Boolean)
       if (firstError) throw firstError
@@ -178,8 +178,8 @@ const DealsPage = () => {
   }
 
   const removeDeal = async (deal: Deal) => {
-    if (!user || !window.confirm('Удалить сделку?')) return
-    const { error: deleteError } = await supabase.from('deals').delete().eq('id', deal.id).eq('user_id', user.id)
+    if (!user) return
+    const { error: deleteError } = await supabase.from('deals').update({ deleted_at: new Date().toISOString() }).eq('id', deal.id).eq('user_id', user.id)
     if (deleteError) setError(deleteError.message)
     else await load()
   }

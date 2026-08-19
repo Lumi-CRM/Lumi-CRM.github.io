@@ -26,7 +26,7 @@ const OfflineSyncStatus = () => {
       getOfflineFileQueueCount(user.id),
     ])
     const pending = dataPending + filePending
-    setStatus(previous => ({ ...previous, online: navigator.onLine, pending }))
+    setStatus(previous => ({ ...previous, pending }))
   }, [user])
 
   useEffect(() => {
@@ -110,7 +110,7 @@ const OfflineSyncStatus = () => {
     return (
       <button type="button" onClick={() => void retry()} className="lumi-control inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs" title="Изменения сохраняются на этом устройстве">
         <CloudOff className="h-4 w-4 text-amber-400" />
-        <span className="hidden lg:inline">Без сети{status.pending ? ` · ${status.pending}` : ''}</span>
+        <span className="hidden lg:inline">Облако недоступно{status.pending ? ` · ${status.pending}` : ''}</span>
       </button>
     )
   }

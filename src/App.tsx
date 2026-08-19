@@ -21,6 +21,7 @@ const DealsPage = lazy(routeLoaders.deals)
 const DocumentsPage = lazy(routeLoaders.documents)
 const GalleryPage = lazy(routeLoaders.gallery)
 const ArchivePage = lazy(routeLoaders.archive)
+const TrashPage = lazy(routeLoaders.trash)
 const FavoritesPage = lazy(routeLoaders.favorites)
 const SettingsPage = lazy(routeLoaders.settings)
 const CallsPage = lazy(routeLoaders.calls)
@@ -74,6 +75,7 @@ function App() {
                       <Route path="/documents" element={<DocumentsPage />} />
                       <Route path="/gallery" element={<GalleryPage />} />
                       <Route path="/archive" element={<ArchivePage />} />
+                      <Route path="/trash" element={<TrashPage />} />
                       <Route path="/favorites" element={<FavoritesPage />} />
                       <Route path="/settings" element={<SettingsPage />} />
                       <Route path="*" element={<Navigate to="/" replace />} />

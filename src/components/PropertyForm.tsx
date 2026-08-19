@@ -15,6 +15,7 @@ interface PropertyFormProps {
 type PropertyFormData = {
   address: string
   listingType: 'sale' | 'rent'
+  workStream: 'active' | 'cold'
   propertyType: string
   sourceUrl: string
   price: number | undefined
@@ -134,7 +135,7 @@ type PropertyDetailsForm = {
 }
 
 const emptyProperty: PropertyFormData = {
-  address: '', listingType: 'sale', propertyType: 'Квартира', sourceUrl: '', price: undefined, rooms: undefined,
+  address: '', listingType: 'sale', workStream: 'active', propertyType: 'Квартира', sourceUrl: '', price: undefined, rooms: undefined,
   area: undefined, floor: undefined, totalFloors: undefined, status: 'available', ownerId: '',
   tags: [], description: '', constructionYear: undefined, repair: '', balcony: false,
   elevator: false, parking: false, heating: 'central', walls: '',
@@ -201,7 +202,7 @@ const PropertyForm = ({ isOpen, onClose, property, clients = [] }: PropertyFormP
     }
 
     setFormData({
-      address: property.address || '', listingType: property.listingType || 'sale', propertyType: property.propertyType || 'Квартира',
+      address: property.address || '', listingType: property.listingType || 'sale', workStream: property.workStream || 'active', propertyType: property.propertyType || 'Квартира',
       sourceUrl: property.sourceUrl || '', price: property.price ?? undefined,
       rooms: property.rooms ?? undefined, area: property.area ?? undefined,
       floor: property.floor ?? undefined, totalFloors: property.totalFloors ?? undefined,
@@ -280,7 +281,7 @@ const PropertyForm = ({ isOpen, onClose, property, clients = [] }: PropertyFormP
     }
 
     const propertyPayload = {
-      address: composedAddress, listing_type: formData.listingType, property_type: formData.propertyType || null, source_url: formData.sourceUrl || null,
+      address: composedAddress, listing_type: formData.listingType, work_stream: formData.workStream, property_type: formData.propertyType || null, source_url: formData.sourceUrl || null,
       price: formData.price ?? null, rooms: formData.rooms ?? null, area: formData.area ?? null,
       floor: formData.floor ?? null, total_floors: formData.totalFloors ?? null, status: formData.status,
       owner_id: formData.ownerId || null, tags: formData.tags, description: formData.description || null,
@@ -381,6 +382,7 @@ const PropertyForm = ({ isOpen, onClose, property, clients = [] }: PropertyFormP
           {section === 'deal' && <>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <Field label="Операция"><select value={formData.listingType} onChange={e => updateProperty('listingType', e.target.value as 'sale' | 'rent')} className={inputClass}><option value="sale">Продажа</option><option value="rent">Аренда</option></select></Field>
+              <Field label="Как работаем с объектом"><select value={formData.workStream} onChange={e => updateProperty('workStream', e.target.value as 'active' | 'cold')} className={inputClass}><option value="active">Мой объект в работе</option><option value="cold">Холодная база / пока только звонки</option></select></Field>
               <Field label="Собственник"><select value={formData.ownerId} onChange={e => updateProperty('ownerId', e.target.value)} className={inputClass}><option value="">Не выбрано</option>{clients.filter(c => c.type === 'seller').map(c => <option key={c.id} value={c.id}>{c.lastName} {c.firstName} {c.middleName || ''}</option>)}</select></Field>
               <Field label="Статус"><select value={formData.status} onChange={e => updateProperty('status', e.target.value as Property['status'])} className={inputClass}><option value="available">В продаже</option><option value="reserved">Забронирован</option><option value="sold">Продан</option><option value="archived">Архив</option></select></Field>
               <Field label="Тип продажи"><select value={details.saleType} onChange={e => updateDetails('saleType', e.target.value)} className={inputClass}><option value="direct">Свободная (прямая)</option><option value="alternative">Альтернативная</option><option value="assignment">Переуступка</option></select></Field>

@@ -7,6 +7,7 @@ import OwnerForm from '../components/OwnerForm'
 import EntityFilesPanel from '../components/EntityFilesPanel'
 import ActivityTimeline from '../components/ActivityTimeline'
 import type { Client } from '../types'
+import { moveToTrash } from '../lib/trash'
 
 interface LinkedProperty {
   id: string
@@ -80,8 +81,8 @@ const OwnersPage = ({ mode = 'sale' }: OwnersPageProps) => {
     setError('')
     try {
       const [clientsResult, propertiesResult] = await Promise.all([
-        supabase.from('clients').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
-        supabase.from('properties').select('id,address,price,status,owner_id,listing_type').eq('user_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('clients').select('*').eq('user_id', user.id).is('deleted_at', null).order('created_at', { ascending: false }),
+        supabase.from('properties').select('id,address,price,status,owner_id,listing_type').eq('user_id', user.id).is('deleted_at', null).order('created_at', { ascending: false }),
       ])
       if (clientsResult.error) throw clientsResult.error
       if (propertiesResult.error) throw propertiesResult.error
@@ -127,11 +128,12 @@ const OwnersPage = ({ mode = 'sale' }: OwnersPageProps) => {
   }
 
   const removeOwner = async (owner: Client) => {
-    if (!window.confirm(`Удалить ${personLabel} «${fullName(owner)}»? Объекты останутся в базе без привязки.`)) return
     if (!user) return
-    const { error: deleteError } = await supabase.from('clients').delete().eq('id', owner.id).eq('user_id', user.id)
-    if (deleteError) setError(deleteError.message)
-    else { setSelectedOwner(null); await load() }
+    try {
+      await moveToTrash('clients', owner.id, user.id)
+      setOwners(current => current.filter(item => item.id !== owner.id))
+      setSelectedOwner(null)
+    } catch (deleteError) { setError(deleteError instanceof Error ? deleteError.message : 'Не удалось переместить клиента в корзину.') }
   }
 
   const closeDetails = () => {

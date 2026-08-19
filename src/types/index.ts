@@ -71,6 +71,8 @@ export interface Property {
   heating?: string
   walls?: string
   coverUrl?: string
+  workStream?: 'active' | 'cold'
+  deletedAt?: string
 }
 
 export interface Deal {
@@ -116,6 +118,9 @@ export interface Task {
   isCompleted: boolean
   category?: string
   project?: string
+  smartCriteria?: { specific?: string; measurable?: string; achievable?: string; relevant?: string; timeBound?: string }
+  eisenhowerQuadrant?: 'do' | 'plan' | 'delegate' | 'eliminate'
+  deletedAt?: string
 }
 
 export interface Event {

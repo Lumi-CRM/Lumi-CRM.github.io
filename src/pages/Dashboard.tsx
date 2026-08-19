@@ -18,6 +18,7 @@ import {
   RefreshCw,
   Settings,
   Star,
+  Trash2,
   Users,
 } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
@@ -56,6 +57,7 @@ const menuItems = [
   { id: '/gallery', icon: Image, label: 'Галерея' },
   { id: '/favorites', icon: Star, label: 'Избранное' },
   { id: '/archive', icon: Archive, label: 'Архив' },
+  { id: '/trash', icon: Trash2, label: 'Корзина' },
   { id: '/settings', icon: Settings, label: 'Настройки' },
 ]
 

@@ -104,25 +104,28 @@ const emptyOverview: CrmOverview = {
 
 export async function getCrmOverview(): Promise<CrmOverview> {
   const [clients, properties, tasks, events, deals] = await Promise.all([
-    supabase.from('clients').select('id,type,roles,mortgage_status,created_at'),
+    supabase.from('clients').select('id,type,roles,mortgage_status,created_at').is('deleted_at', null),
     supabase
       .from('properties')
       .select('id,address,price,status,property_type,listing_type,created_at')
+      .is('deleted_at', null)
       .neq('status', 'archived')
       .order('created_at', { ascending: false }),
     supabase
       .from('tasks')
       .select('id,title,due_date,due_time,priority,status,is_completed')
+      .is('deleted_at', null)
       .eq('is_completed', false)
       .order('due_date', { ascending: true, nullsFirst: false })
       .limit(8),
     supabase
       .from('events')
       .select('id,type,title,event_date,event_time,location,is_completed')
+      .is('deleted_at', null)
       .eq('is_completed', false)
       .order('event_date', { ascending: true })
       .limit(8),
-    supabase.from('deals').select('id,status,price,created_at'),
+    supabase.from('deals').select('id,status,price,created_at').is('deleted_at', null),
   ])
 
   const firstError = [clients.error, properties.error, tasks.error, events.error, deals.error].find(Boolean)

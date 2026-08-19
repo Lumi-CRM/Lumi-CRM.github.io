@@ -48,6 +48,7 @@ const ActivityTimeline = ({ clientId, propertyId, title = 'История раб
       .from('crm_activities')
       .select('id,type,status,title,occurred_at,due_at,outcome,notes,source,created_at')
       .eq('user_id', user.id)
+      .is('deleted_at', null)
       .order('occurred_at', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
     if (clientId) query = query.eq('client_id', clientId)

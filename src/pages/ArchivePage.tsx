@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Archive, Building2, LoaderCircle, RotateCcw, Users } from 'lucide-react'
+import { Archive, Building2, LoaderCircle, RotateCcw, Trash2, Users } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { moveToTrash } from '../lib/trash'
 
 interface ArchivedProperty { id: string; address: string; price?: number; rooms?: number; area?: number; status: string }
 interface ArchivedClient { id: string; first_name?: string; last_name?: string; middle_name?: string; phone?: string; type: string }
@@ -19,8 +20,8 @@ const ArchivePage = () => {
     setLoading(true)
     setError('')
     const [propertyResult, clientResult] = await Promise.all([
-      supabase.from('properties').select('id,address,price,rooms,area,status').eq('user_id', user.id).in('status', ['sold', 'archived']).order('updated_at', { ascending: false }),
-      supabase.from('clients').select('id,first_name,last_name,middle_name,phone,type,status').eq('user_id', user.id).eq('status', 'archived').order('updated_at', { ascending: false }),
+      supabase.from('properties').select('id,address,price,rooms,area,status').eq('user_id', user.id).is('deleted_at', null).in('status', ['sold', 'archived']).order('updated_at', { ascending: false }),
+      supabase.from('clients').select('id,first_name,last_name,middle_name,phone,type,status').eq('user_id', user.id).is('deleted_at', null).eq('status', 'archived').order('updated_at', { ascending: false }),
     ])
     if (propertyResult.error || clientResult.error) setError('Не удалось загрузить архив.')
     setProperties((propertyResult.data ?? []) as ArchivedProperty[])
@@ -44,11 +45,23 @@ const ArchivePage = () => {
     else setClients(current => current.filter(item => item.id !== id))
   }
 
+  const trashProperty = async (id: string) => {
+    if (!user) return
+    try { await moveToTrash('properties', id, user.id); setProperties(current => current.filter(item => item.id !== id)) }
+    catch { setError('Не удалось переместить объект в корзину.') }
+  }
+
+  const trashClient = async (id: string) => {
+    if (!user) return
+    try { await moveToTrash('clients', id, user.id); setClients(current => current.filter(item => item.id !== id)) }
+    catch { setError('Не удалось переместить клиента в корзину.') }
+  }
+
   return <div className="space-y-6">
     <div className="flex items-center justify-between"><div><h1 className="lumi-text text-3xl font-bold">Архив</h1><p className="lumi-muted mt-2">Проданные и временно скрытые записи.</p></div><Archive className="lumi-muted h-8 w-8" /></div>
     {error && <div className="rounded-xl border border-red-800/50 bg-red-950/25 px-4 py-3 text-sm text-red-300">{error}</div>}
-    <div className="lumi-control flex w-fit rounded-xl p-1"><button type="button" onClick={() => setActiveTab('properties')} className={`flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold ${activeTab === 'properties' ? 'lumi-panel lumi-text shadow-sm' : 'lumi-muted'}`}><Building2 className="h-4 w-4" />Объекты · {properties.length}</button><button type="button" onClick={() => setActiveTab('clients')} className={`flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold ${activeTab === 'clients' ? 'lumi-panel lumi-text shadow-sm' : 'lumi-muted'}`}><Users className="h-4 w-4" />Клиенты · {clients.length}</button></div>
-    {loading ? <div className="lumi-muted flex justify-center py-20"><LoaderCircle className="h-9 w-9 animate-spin" /></div> : activeTab === 'properties' ? properties.length ? <div className="lumi-panel overflow-hidden rounded-2xl border"><div className="overflow-x-auto"><table className="w-full"><thead className="lumi-panel-muted"><tr>{['Адрес', 'Цена', 'Параметры', 'Статус', ''].map(label => <th key={label} className="lumi-muted px-5 py-4 text-left text-xs uppercase">{label}</th>)}</tr></thead><tbody>{properties.map(property => <tr key={property.id} className="lumi-border border-t"><td className="lumi-text px-5 py-4 font-medium">{property.address}</td><td className="lumi-text px-5 py-4">{property.price ? `${Number(property.price).toLocaleString('ru-RU')} ₽` : '—'}</td><td className="lumi-muted px-5 py-4">{property.rooms ?? '—'}-комн. · {property.area ?? '—'} м²</td><td className="px-5 py-4"><span className="rounded-full bg-amber-500/15 px-3 py-1 text-xs text-amber-400">{property.status === 'sold' ? 'Продан' : 'Архив'}</span></td><td className="px-5 py-4"><button type="button" onClick={() => void restoreProperty(property.id)} className="lumi-accent-soft inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold"><RotateCcw className="h-4 w-4" />Восстановить</button></td></tr>)}</tbody></table></div></div> : <Empty text="В архиве нет объектов" /> : clients.length ? <div className="lumi-panel overflow-hidden rounded-2xl border"><div className="overflow-x-auto"><table className="w-full"><thead className="lumi-panel-muted"><tr>{['ФИО', 'Тип', 'Телефон', ''].map(label => <th key={label} className="lumi-muted px-5 py-4 text-left text-xs uppercase">{label}</th>)}</tr></thead><tbody>{clients.map(client => <tr key={client.id} className="lumi-border border-t"><td className="lumi-text px-5 py-4 font-medium">{client.last_name} {client.first_name} {client.middle_name}</td><td className="lumi-muted px-5 py-4">{client.type === 'seller' ? 'Собственник' : 'Покупатель'}</td><td className="lumi-muted px-5 py-4">{client.phone || '—'}</td><td className="px-5 py-4"><button type="button" onClick={() => void restoreClient(client.id)} className="lumi-accent-soft inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold"><RotateCcw className="h-4 w-4" />Восстановить</button></td></tr>)}</tbody></table></div></div> : <Empty text="В архиве нет клиентов" />}
+    <div className="lumi-control grid w-full max-w-md grid-cols-2 rounded-xl p-1"><button type="button" onClick={() => setActiveTab('properties')} className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold ${activeTab === 'properties' ? 'lumi-panel lumi-text shadow-sm' : 'lumi-muted'}`}><Building2 className="h-4 w-4" />Объекты · {properties.length}</button><button type="button" onClick={() => setActiveTab('clients')} className={`flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold ${activeTab === 'clients' ? 'lumi-panel lumi-text shadow-sm' : 'lumi-muted'}`}><Users className="h-4 w-4" />Клиенты · {clients.length}</button></div>
+    {loading ? <div className="lumi-muted flex justify-center py-20"><LoaderCircle className="h-9 w-9 animate-spin" /></div> : activeTab === 'properties' ? properties.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{properties.map(property => <article key={property.id} className="lumi-panel rounded-2xl border p-5"><h2 className="lumi-text font-semibold">{property.address}</h2><p className="lumi-muted mt-2 text-sm">{property.price ? `${Number(property.price).toLocaleString('ru-RU')} ₽` : 'Цена не указана'} · {property.rooms ?? '—'}-комн. · {property.area ?? '—'} м²</p><span className="mt-3 inline-flex rounded-full bg-amber-500/15 px-3 py-1 text-xs text-amber-400">{property.status === 'sold' ? 'Продан' : 'Архив'}</span><div className="mt-5 grid grid-cols-2 gap-2"><button type="button" onClick={() => void restoreProperty(property.id)} className="lumi-accent-soft inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold"><RotateCcw className="h-4 w-4" />Вернуть</button><button type="button" onClick={() => void trashProperty(property.id)} className="inline-flex items-center justify-center gap-2 rounded-lg bg-red-500/15 px-3 py-2.5 text-sm font-semibold text-red-400"><Trash2 className="h-4 w-4" />В корзину</button></div></article>)}</div> : <Empty text="В архиве нет объектов" /> : clients.length ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{clients.map(client => <article key={client.id} className="lumi-panel rounded-2xl border p-5"><h2 className="lumi-text font-semibold">{client.last_name} {client.first_name} {client.middle_name}</h2><p className="lumi-muted mt-2 text-sm">{client.type === 'seller' ? 'Собственник' : 'Покупатель'} · {client.phone || 'Телефон не указан'}</p><div className="mt-5 grid grid-cols-2 gap-2"><button type="button" onClick={() => void restoreClient(client.id)} className="lumi-accent-soft inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-sm font-semibold"><RotateCcw className="h-4 w-4" />Вернуть</button><button type="button" onClick={() => void trashClient(client.id)} className="inline-flex items-center justify-center gap-2 rounded-lg bg-red-500/15 px-3 py-2.5 text-sm font-semibold text-red-400"><Trash2 className="h-4 w-4" />В корзину</button></div></article>)}</div> : <Empty text="В архиве нет клиентов" />}
   </div>
 }
 

@@ -45,6 +45,15 @@ interface UploadCrmFileInput extends FileFilters {
 }
 
 const MAX_FILE_SIZE = 25 * 1024 * 1024
+const FILE_NETWORK_TIMEOUT_MS = 8_000
+
+const withFileTimeout = <T,>(request: PromiseLike<T>, timeoutMs = FILE_NETWORK_TIMEOUT_MS) => new Promise<T>((resolve, reject) => {
+  const timer = window.setTimeout(() => reject(new Error('FILE_NETWORK_TIMEOUT')), timeoutMs)
+  Promise.resolve(request).then(
+    value => { window.clearTimeout(timer); resolve(value) },
+    error => { window.clearTimeout(timer); reject(error) },
+  )
+})
 
 const CYRILLIC_TO_LATIN: Record<string, string> = {
   а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'e', ж: 'zh', з: 'z', и: 'i', й: 'y',
@@ -139,9 +148,15 @@ export const uploadCrmFile = async ({
 
   if (!navigator.onLine) return queueOfflineFile(record, file)
 
-  const { error: uploadError } = await supabase.storage
-    .from(bucket)
-    .upload(storagePath, file, { cacheControl: '86400', upsert: false, contentType: file.type || undefined })
+  let uploadResult: Awaited<ReturnType<ReturnType<typeof supabase.storage.from>['upload']>>
+  try {
+    uploadResult = await withFileTimeout(supabase.storage
+      .from(bucket)
+      .upload(storagePath, file, { cacheControl: '86400', upsert: false, contentType: file.type || undefined }))
+  } catch {
+    return queueOfflineFile(record, file)
+  }
+  const { error: uploadError } = uploadResult
   if (uploadError) {
     if (isConnectivityError(uploadError)) return queueOfflineFile(record, file)
     throw uploadError
@@ -191,9 +206,15 @@ export const createSignedFileUrls = async (files: CrmFileRecord[], expiresIn = 6
     } else remoteFiles.push(file)
   }
   if (remoteFiles.length === 0 || !navigator.onLine) return result
-  const { data, error } = await supabase.storage
-    .from(bucket)
-    .createSignedUrls(remoteFiles.map(file => file.storage_path), expiresIn)
+  let signedResult: Awaited<ReturnType<ReturnType<typeof supabase.storage.from>['createSignedUrls']>>
+  try {
+    signedResult = await withFileTimeout(supabase.storage
+      .from(bucket)
+      .createSignedUrls(remoteFiles.map(file => file.storage_path), expiresIn))
+  } catch {
+    return result
+  }
+  const { data, error } = signedResult
   if (error) throw error
   for (let index = 0; index < remoteFiles.length; index += 1) {
     const item = data?.[index]

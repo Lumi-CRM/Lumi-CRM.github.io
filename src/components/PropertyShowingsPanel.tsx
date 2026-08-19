@@ -44,6 +44,7 @@ const PropertyShowingsPanel = ({ propertyId }: { propertyId: string }) => {
       .from('crm_activities')
       .select('id,occurred_at,outcome,notes,metadata')
       .eq('user_id', user.id)
+      .is('deleted_at', null)
       .eq('property_id', propertyId)
       .eq('type', 'meeting')
       .contains('metadata', { kind: 'property_showing' })
@@ -86,8 +87,8 @@ const PropertyShowingsPanel = ({ propertyId }: { propertyId: string }) => {
   }
 
   const remove = async (id: string) => {
-    if (!user || !window.confirm('Удалить запись о показе?')) return
-    await supabase.from('crm_activities').delete().eq('id', id).eq('user_id', user.id)
+    if (!user) return
+    await supabase.from('crm_activities').update({ deleted_at: new Date().toISOString() }).eq('id', id).eq('user_id', user.id)
     setRecords(current => current.filter(record => record.id !== id))
   }
 

@@ -90,7 +90,6 @@ const PropertyMediaPanel = ({ propertyId, propertyAddress }: PropertyMediaPanelP
   }
 
   const remove = async (file: MediaWithUrl) => {
-    if (!window.confirm(`Удалить фото «${file.name}»?`)) return
     try {
       await deleteCrmFile(file)
       setFiles(current => current.filter(item => item.id !== file.id))

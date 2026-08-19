@@ -29,8 +29,8 @@ const NewEventForm = ({ isOpen, onClose, defaultType = 'meeting', editData = nul
   const fetchData = async () => {
     if (!user) return
     const [clientsRes, propsRes] = await Promise.all([
-      supabase.from('clients').select('*').eq('user_id', user.id),
-      supabase.from('properties').select('*').eq('user_id', user.id)
+      supabase.from('clients').select('*').eq('user_id', user.id).is('deleted_at', null),
+      supabase.from('properties').select('*').eq('user_id', user.id).is('deleted_at', null)
     ])
     if (clientsRes.data) {
       const mappedClients = clientsRes.data.map(c => ({

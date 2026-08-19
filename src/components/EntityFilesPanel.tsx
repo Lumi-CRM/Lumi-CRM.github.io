@@ -74,7 +74,6 @@ const EntityFilesPanel = ({ clientId, propertyId, title = 'Документы', 
   }
 
   const remove = async (file: CrmFileRecord) => {
-    if (!window.confirm(`Удалить «${file.name}»?`)) return
     try {
       await deleteCrmFile(file)
       setFiles(current => current.filter(item => item.id !== file.id))

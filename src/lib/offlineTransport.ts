@@ -52,10 +52,14 @@ const UUID_TABLES = new Set([
   'property_shares',
   'notifications',
   'push_subscriptions',
+  'monthly_plans',
+  'crm_imports',
+  'crm_import_rows',
 ])
 const SAFE_HEADERS = new Set(['accept', 'content-type', 'content-profile', 'prefer', 'range', 'range-unit'])
 const nativeFetch = globalThis.fetch.bind(globalThis)
 const READ_TIMEOUT_MS = 5_000
+const WRITE_TIMEOUT_MS = 7_000
 
 let sessionProvider: (() => Promise<SessionSnapshot>) | null = null
 let syncPromise: Promise<number> | null = null
@@ -63,6 +67,16 @@ let syncTimer: number | null = null
 
 const hasIndexedDb = () => typeof indexedDB !== 'undefined'
 const isOnline = () => typeof navigator === 'undefined' || navigator.onLine
+
+const fetchWithTimeout = async (request: Request, timeoutMs: number) => {
+  const controller = new AbortController()
+  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await nativeFetch(new Request(request, { signal: controller.signal }))
+  } finally {
+    globalThis.clearTimeout(timeout)
+  }
+}
 
 const emitStatus = (detail: OfflineStatus) => {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('lumicrm:offline-status', { detail }))
@@ -169,7 +183,7 @@ const valuesEqual = (left: unknown, right: string) => {
 export const filterRowsForUrl = (rows: Record<string, unknown>[], urlValue: string) => {
   const url = new URL(urlValue, 'https://offline.local')
   let result = [...rows]
-  const reserved = new Set(['select', 'order', 'limit', 'offset', 'on_conflict'])
+  const reserved = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'or'])
 
   url.searchParams.forEach((expression, field) => {
     if (reserved.has(field)) return
@@ -183,6 +197,26 @@ export const filterRowsForUrl = (rows: Record<string, unknown>[], urlValue: stri
     } else if (decoded.startsWith('is.')) {
       const expected = decoded.slice(3)
       result = result.filter(row => valuesEqual(row[field], expected))
+    } else if (decoded.startsWith('not.is.')) {
+      const expected = decoded.slice(7)
+      result = result.filter(row => !valuesEqual(row[field], expected))
+    } else if (decoded.startsWith('ilike.')) {
+      const expected = decoded.slice(6).replace(/^%|%$/g, '').toLocaleLowerCase('ru-RU')
+      result = result.filter(row => String(row[field] ?? '').toLocaleLowerCase('ru-RU').includes(expected))
+    } else if (/^(gte|lte|gt|lt)\./.test(decoded)) {
+      const [operator, ...parts] = decoded.split('.')
+      const expected = parts.join('.')
+      result = result.filter(row => {
+        const actual = row[field]
+        const numeric = Number(actual)
+        const expectedNumeric = Number(expected)
+        const left = Number.isNaN(numeric) || Number.isNaN(expectedNumeric) ? String(actual ?? '') : numeric
+        const right = Number.isNaN(numeric) || Number.isNaN(expectedNumeric) ? expected : expectedNumeric
+        if (operator === 'gte') return left >= right
+        if (operator === 'lte') return left <= right
+        if (operator === 'gt') return left > right
+        return left < right
+      })
     } else if (decoded.startsWith('in.(') && decoded.endsWith(')')) {
       const expected = decoded.slice(4, -1).split(',').map(value => value.replace(/^"|"$/g, ''))
       result = result.filter(row => expected.some(value => valuesEqual(row[field], value)))
@@ -199,6 +233,19 @@ export const filterRowsForUrl = (rows: Record<string, unknown>[], urlValue: stri
       }
     }
   })
+
+  const orExpression = url.searchParams.get('or')
+  if (orExpression) {
+    const conditions = parseFilterValue(orExpression).replace(/^\(|\)$/g, '').split(',')
+    result = result.filter(row => conditions.some(condition => {
+      const match = condition.match(/^([^.]+)\.(eq|ilike)\.(.*)$/)
+      if (!match) return false
+      const [, field, operator, expectedValue] = match
+      if (operator === 'eq') return valuesEqual(row[field], expectedValue)
+      const expected = expectedValue.replace(/^%|%$/g, '').toLocaleLowerCase('ru-RU')
+      return String(row[field] ?? '').toLocaleLowerCase('ru-RU').includes(expected)
+    }))
+  }
 
   const order = url.searchParams.get('order')
   if (order) {
@@ -278,14 +325,47 @@ const findCachedResponse = async (request: Request, userId: string, table: strin
 
 const matchesMutation = (row: Record<string, unknown>, url: string) => filterRowsForUrl([row], url).length === 1
 
+const rowWithMutationFilters = (payload: Record<string, unknown>, urlValue: string) => {
+  const row = { ...payload }
+  const url = new URL(urlValue)
+  url.searchParams.forEach((expression, field) => {
+    const decoded = parseFilterValue(expression)
+    if (row[field] === undefined && decoded.startsWith('eq.')) row[field] = decoded.slice(3)
+  })
+  return row
+}
+
+const seedCachedTable = async (userId: string, table: string, urlValue: string, method: string, incoming: Record<string, unknown>[]) => {
+  if (method === 'DELETE') return
+  const rows = incoming.map(row => rowWithMutationFilters(row, urlValue))
+  if (!rows.length) return
+  const url = new URL(urlValue)
+  url.search = '?select=*'
+  const request = new Request(url, { headers: { accept: 'application/json' } })
+  const record: CachedResponse = {
+    key: cacheKey(userId, request),
+    userId,
+    userTable: `${userId}:${table}`,
+    table,
+    url: request.url,
+    body: JSON.stringify(rows),
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+    updatedAt: Date.now(),
+  }
+  await runStore(RESPONSE_STORE, 'readwrite', store => store.put(record))
+}
+
 const updateCachedTable = async (userId: string, table: string, method: string, url: string, payload: unknown) => {
   if (!hasIndexedDb()) return
   const records = await getAllByIndex<CachedResponse>(RESPONSE_STORE, 'userTable', `${userId}:${table}`).catch(() => [])
   const incoming = (Array.isArray(payload) ? payload : [payload]).filter(Boolean) as Record<string, unknown>[]
+  let updatedSnapshots = 0
   await Promise.all(records.map(async record => {
     try {
       const parsed = JSON.parse(record.body)
       if (!Array.isArray(parsed)) return
+      updatedSnapshots += 1
       let rows = parsed as Record<string, unknown>[]
       if (method === 'POST') {
         for (const row of incoming) {
@@ -305,6 +385,7 @@ const updateCachedTable = async (userId: string, table: string, method: string, 
       // A malformed old cache entry must not block an offline write.
     }
   }))
+  if (updatedSnapshots === 0) await seedCachedTable(userId, table, url, method, incoming)
 }
 
 const syntheticMutationResponse = (request: Request, method: string, payload: unknown) => {
@@ -347,7 +428,7 @@ const enqueueMutation = async (request: Request, userId: string, table: string) 
   await runStore(QUEUE_STORE, 'readwrite', store => store.put(queueItem))
   await updateCachedTable(userId, table, method, request.url, parsed)
   const pending = await getOfflineQueueCount(userId)
-  emitStatus({ online: isOnline(), pending, syncing: false })
+  emitStatus({ online: false, pending, syncing: false })
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('lumicrm:offline-queued', { detail: { table, pending } }))
   return syntheticMutationResponse(request, method, parsed)
 }
@@ -355,8 +436,12 @@ const enqueueMutation = async (request: Request, userId: string, table: string) 
 export const createOfflineFetch = (supabaseUrl: string) => async (input: RequestInfo | URL, init?: RequestInit) => {
   const request = new Request(input, init)
   const url = new URL(request.url)
-  const table = url.origin === new URL(supabaseUrl).origin ? getTable(url) : null
-  if (!table) return nativeFetch(request)
+  const isSupabaseRequest = url.origin === new URL(supabaseUrl).origin
+  const table = isSupabaseRequest ? getTable(url) : null
+  if (!table) {
+    if (isSupabaseRequest) return fetchWithTimeout(request, request.method === 'GET' ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS)
+    return nativeFetch(request)
+  }
 
   const userId = decodeUserId(request)
   if (!userId) return nativeFetch(request)
@@ -365,21 +450,20 @@ export const createOfflineFetch = (supabaseUrl: string) => async (input: Request
   if (method === 'GET' || method === 'HEAD') {
     if (isOnline()) {
       const cached = await findCachedResponse(request, userId, table)
-      const networkRequest = nativeFetch(request.clone())
+      const networkRequest = fetchWithTimeout(request.clone(), READ_TIMEOUT_MS)
       void networkRequest.then(response => {
-        if (response.ok) return cacheResponse(request, response, userId, table)
+        if (response.ok) {
+          emitStatus({ online: true, pending: 0, syncing: false })
+          return cacheResponse(request, response, userId, table)
+        }
       }).catch(() => undefined)
       try {
-        const response = cached
-          ? await Promise.race([
-            networkRequest,
-            new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Slow connection')), READ_TIMEOUT_MS)),
-          ])
-          : await networkRequest
+        const response = await networkRequest
         if (response.status < 500) return response
       } catch {
         // Fall through to the device-local snapshot.
       }
+      emitStatus({ online: false, pending: await getOfflineQueueCount(userId), syncing: false, error: 'Облако недоступно — используется копия на устройстве' })
       if (cached) return cached
     }
     return await findCachedResponse(request, userId, table)
@@ -391,11 +475,15 @@ export const createOfflineFetch = (supabaseUrl: string) => async (input: Request
 
   if (isOnline()) {
     try {
-      const response = await nativeFetch(request.clone())
-      if (response.status < 500) return response
+      const response = await fetchWithTimeout(request.clone(), WRITE_TIMEOUT_MS)
+      if (response.status < 500) {
+        emitStatus({ online: true, pending: await getOfflineQueueCount(userId), syncing: false })
+        return response
+      }
     } catch {
       // A temporary connection failure is handled as an offline write.
     }
+    emitStatus({ online: false, pending: await getOfflineQueueCount(userId), syncing: false, error: 'Изменение сохранено на устройстве и ожидает синхронизации' })
   }
   return enqueueMutation(request, userId, table)
 }
@@ -440,11 +528,11 @@ export const flushOfflineQueue = async () => {
           const prefer = headers.get('prefer') ?? ''
           if (!prefer.includes('resolution=')) headers.set('prefer', [prefer, 'resolution=merge-duplicates'].filter(Boolean).join(','))
         }
-        const response = await nativeFetch(replayUrl(entry), {
+        const response = await fetchWithTimeout(new Request(replayUrl(entry), {
           method: entry.method,
           headers,
           body: entry.body || undefined,
-        })
+        }), WRITE_TIMEOUT_MS)
         if (response.ok) {
           await runStore(QUEUE_STORE, 'readwrite', store => store.delete(entry.id))
           synced += 1
@@ -463,7 +551,7 @@ export const flushOfflineQueue = async () => {
     }
 
     const pending = await getOfflineQueueCount(session.userId)
-    emitStatus({ online: isOnline(), pending, syncing: false, error: pending > 0 && synced === 0 ? 'Синхронизация будет повторена' : undefined })
+    emitStatus({ online: pending === 0 || synced > 0 ? isOnline() : false, pending, syncing: false, error: pending > 0 && synced === 0 ? 'Синхронизация будет повторена' : undefined })
     if (synced > 0 && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('lumicrm:data-synced', { detail: { synced, pending } }))
     }

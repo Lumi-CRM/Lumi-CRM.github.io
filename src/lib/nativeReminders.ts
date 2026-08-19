@@ -13,6 +13,9 @@ type ReminderSource = {
 
 const OFFSETS = [1440, 60, 5, 0] as const
 const ID_MODULO = 2_000_000_000
+const REMINDER_CHANNEL = 'lumicrm-reminders-v2'
+const REMINDER_ACTION_TYPE = 'LUMICRM_REMINDER_ACTIONS'
+const SNOOZE_ACTION = 'SNOOZE_15'
 
 const notificationId = (sourceType: string, sourceId: string, minutes: number) => {
   let hash = 2166136261
@@ -41,14 +44,45 @@ export const requestNativeNotificationPermission = async () => {
   return permission.display === 'granted'
 }
 
+export const requestExactAlarmPermission = async () => {
+  if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'android') return true
+  const current = await LocalNotifications.checkExactNotificationSetting()
+  if (current.exact_alarm === 'granted') return true
+  const changed = await LocalNotifications.changeExactNotificationSetting()
+  return changed.exact_alarm === 'granted'
+}
+
+const configureNativeNotifications = async () => {
+  if (!Capacitor.isNativePlatform()) return
+  await LocalNotifications.registerActionTypes({
+    types: [{
+      id: REMINDER_ACTION_TYPE,
+      actions: [{ id: SNOOZE_ACTION, title: 'Отложить на 15 минут' }],
+    }],
+  })
+  if (Capacitor.getPlatform() === 'android') {
+    await LocalNotifications.createChannel({
+      id: REMINDER_CHANNEL,
+      name: 'Задачи, звонки и встречи',
+      description: 'Точные рабочие напоминания LumiCRM',
+      importance: 5,
+      visibility: 1,
+      vibration: true,
+      lights: true,
+      lightColor: '#4F46E5',
+    })
+  }
+}
+
 export const syncNativeReminders = async (userId: string) => {
   if (!Capacitor.isNativePlatform() || !userId) return
+  await configureNativeNotifications()
   const granted = await requestNativeNotificationPermission()
   if (!granted) return
 
   const [tasksResult, eventsResult] = await Promise.all([
-    supabase.from('tasks').select('id,title,description,due_date,due_time,status,is_completed').eq('user_id', userId).eq('is_completed', false).neq('status', 'done').not('due_date', 'is', null).not('due_time', 'is', null),
-    supabase.from('events').select('id,type,title,event_date,event_time,location,notes,is_completed').eq('user_id', userId).eq('is_completed', false).not('event_time', 'is', null),
+    supabase.from('tasks').select('id,title,description,due_date,due_time,status,is_completed').eq('user_id', userId).is('deleted_at', null).eq('is_completed', false).neq('status', 'done').not('due_date', 'is', null).not('due_time', 'is', null),
+    supabase.from('events').select('id,type,title,event_date,event_time,location,notes,is_completed').eq('user_id', userId).is('deleted_at', null).eq('is_completed', false).not('event_time', 'is', null),
   ])
   if (tasksResult.error || eventsResult.error) return
 
@@ -85,7 +119,10 @@ export const syncNativeReminders = async (userId: string) => {
       title: source.title,
       body: `${source.body} · напоминание ${reminderSuffix(minutes)}`,
       schedule: { at, allowWhileIdle: true },
-      extra: { route: source.route, sourceType: source.sourceType, sourceId: source.sourceId },
+      channelId: REMINDER_CHANNEL,
+      actionTypeId: REMINDER_ACTION_TYPE,
+      autoCancel: true,
+      extra: { route: source.route, sourceType: source.sourceType, sourceId: source.sourceId, reminderBody: source.body },
     }]
   }))
 
@@ -96,7 +133,31 @@ export const syncNativeReminders = async (userId: string) => {
 
 export const installNativeNotificationHandlers = async () => {
   if (!Capacitor.isNativePlatform()) return
+  await configureNativeNotifications()
   await LocalNotifications.addListener('localNotificationActionPerformed', action => {
+    if (action.actionId === SNOOZE_ACTION) {
+      const extra = action.notification.extra || {}
+      const next = new Date(Date.now() + 15 * 60_000)
+      const sourceType = String(extra.sourceType || '')
+      const sourceId = String(extra.sourceId || '')
+      if (sourceId && (sourceType === 'task' || sourceType === 'event')) {
+        const date = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`
+        const time = `${String(next.getHours()).padStart(2, '0')}:${String(next.getMinutes()).padStart(2, '0')}:00`
+        const update = sourceType === 'task' ? { due_date: date, due_time: time } : { event_date: date, event_time: time }
+        void supabase.from(sourceType === 'task' ? 'tasks' : 'events').update(update).eq('id', sourceId)
+      }
+      void LocalNotifications.schedule({ notifications: [{
+        id: notificationId(sourceType || 'reminder', sourceId || String(action.notification.id), Math.floor(Date.now() / 60_000)),
+        title: action.notification.title || 'Напоминание LumiCRM',
+        body: `${extra.reminderBody || action.notification.body || 'Рабочее напоминание'} · отложено на 15 минут`,
+        schedule: { at: next, allowWhileIdle: true },
+        channelId: REMINDER_CHANNEL,
+        actionTypeId: REMINDER_ACTION_TYPE,
+        autoCancel: true,
+        extra,
+      }] })
+      return
+    }
     const route = action.notification.extra?.route
     if (typeof route === 'string' && route.startsWith('/')) window.location.assign(route)
   })

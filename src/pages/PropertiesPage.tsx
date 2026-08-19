@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext'
 import { Property, Client } from '../types'
 import PropertyForm from '../components/PropertyForm'
 import { createSignedFileUrls, type CrmFileRecord } from '../lib/files'
+import { moveToTrash } from '../lib/trash'
 
 const PropertiesPage = () => {
   const navigate = useNavigate()
@@ -16,6 +17,7 @@ const PropertiesPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingProperty, setEditingProperty] = useState<Property | null>(null)
   const [actionError, setActionError] = useState('')
+  const [workStream, setWorkStream] = useState<'active' | 'cold'>('active')
 
   const fetchData = async () => {
     if (!user) return
@@ -25,12 +27,14 @@ const PropertiesPage = () => {
         .from('properties')
         .select('*')
         .eq('user_id', user.id)
+        .is('deleted_at', null)
         .neq('status', 'archived')
         .order('created_at', { ascending: false }),
       supabase
         .from('clients')
         .select('*')
         .eq('user_id', user.id)
+        .is('deleted_at', null)
         .order('created_at', { ascending: false })
     ])
 
@@ -50,6 +54,7 @@ const PropertiesPage = () => {
         ...p,
         userId: p.user_id,
         listingType: p.listing_type,
+        workStream: p.work_stream || 'active',
         propertyType: p.property_type,
         sourceUrl: p.source_url,
         ownerId: p.owner_id,
@@ -86,7 +91,8 @@ const PropertiesPage = () => {
   }, [user])
 
   const filteredProperties = properties.filter(prop =>
-    (prop.address || '').toLowerCase().includes((searchQuery || '').toLowerCase())
+    (prop.workStream || 'active') === workStream
+    && (prop.address || '').toLowerCase().includes((searchQuery || '').toLowerCase())
   )
 
   const getStatusColor = (status: string) => {
@@ -134,9 +140,10 @@ const PropertiesPage = () => {
 
   const deleteProperty = async (propertyId: string) => {
     if (!user) return
-    if (!confirm('Удалить объект?')) return
-    await supabase.from('properties').delete().eq('id', propertyId).eq('user_id', user.id)
-    await fetchData()
+    try {
+      await moveToTrash('properties', propertyId, user.id)
+      setProperties(current => current.filter(item => item.id !== propertyId))
+    } catch { setActionError('Не удалось переместить объект в корзину.') }
   }
 
   return (
@@ -160,6 +167,10 @@ const PropertiesPage = () => {
           onChange={(e) => setSearchQuery(e.target.value)}
           className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none"
         />
+      </div>
+      <div className="lumi-control grid w-full max-w-xl grid-cols-2 rounded-xl p-1">
+        <button type="button" onClick={() => setWorkStream('active')} className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition ${workStream === 'active' ? 'lumi-panel lumi-text shadow-sm' : 'lumi-muted'}`}>Мои объекты в работе · {properties.filter(item => (item.workStream || 'active') === 'active').length}</button>
+        <button type="button" onClick={() => setWorkStream('cold')} className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition ${workStream === 'cold' ? 'lumi-panel lumi-text shadow-sm' : 'lumi-muted'}`}>Холодная база · {properties.filter(item => item.workStream === 'cold').length}</button>
       </div>
 
       {actionError && <div className="rounded-xl border border-red-800/50 bg-red-950/25 px-4 py-3 text-sm text-red-300">{actionError}</div>}
@@ -239,6 +250,7 @@ const PropertiesPage = () => {
                       e.stopPropagation()
                       deleteProperty(prop.id)
                     }}
+                    title="Переместить в корзину на 5 дней"
                     className="px-4 py-2 bg-red-100 dark:bg-red-900/30 text-red-600 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
                   >
                     <Trash2 className="w-4 h-4" />

@@ -49,8 +49,8 @@ const MonthlyPlanPage = () => {
     setMessage('')
     const [planResult, activityResult, dealResult, detailsResult] = await Promise.all([
       supabase.from('monthly_plans').select('*').eq('user_id', user.id).order('starts_on', { ascending: false }).limit(1).maybeSingle(),
-      supabase.from('crm_activities').select('type,occurred_at,metadata').eq('user_id', user.id).eq('status', 'completed'),
-      supabase.from('deals').select('property_id,price,status,created_at').eq('user_id', user.id),
+      supabase.from('crm_activities').select('type,occurred_at,metadata').eq('user_id', user.id).is('deleted_at', null).eq('status', 'completed'),
+      supabase.from('deals').select('property_id,price,status,created_at').eq('user_id', user.id).is('deleted_at', null),
       supabase.from('property_details').select('property_id,new_building').eq('user_id', user.id).eq('new_building', true),
     ])
     if (planResult.data) {

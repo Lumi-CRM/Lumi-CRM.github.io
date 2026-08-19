@@ -109,6 +109,7 @@ const CallsPage = () => {
       .from('crm_activities')
       .select('id,title,occurred_at,source,outcome,notes,metadata')
       .eq('user_id', user.id)
+      .is('deleted_at', null)
       .eq('type', 'call')
       .eq('status', 'completed')
       .order('occurred_at', { ascending: false })
@@ -189,8 +190,8 @@ const CallsPage = () => {
   }
 
   const remove = async (id: string) => {
-    if (!user || !window.confirm('Удалить запись о звонке?')) return
-    await supabase.from('crm_activities').delete().eq('id', id).eq('user_id', user.id)
+    if (!user) return
+    await supabase.from('crm_activities').update({ deleted_at: new Date().toISOString() }).eq('id', id).eq('user_id', user.id)
     setCalls(current => current.filter(call => call.id !== id))
   }
 

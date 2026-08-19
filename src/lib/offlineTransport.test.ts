@@ -34,3 +34,16 @@ test('offline property shares receive both id and public slug', () => {
   assert.match(String(prepared.id), /^[0-9a-f-]{36}$/)
   assert.match(String(prepared.slug), /^[0-9a-f-]{36}$/)
 })
+
+test('offline cache supports trash, text search and combined OR search', () => {
+  const rows = [
+    { id: '1', deleted_at: null, first_name: 'Анна', phone: '79000000001' },
+    { id: '2', deleted_at: '2026-08-19T10:00:00Z', first_name: 'Борис', phone: '79000000002' },
+  ]
+  const active = filterRowsForUrl(rows, 'https://example.test/rest/v1/clients?deleted_at=is.null&first_name=ilike.%25%D0%B0%D0%BD%25')
+  assert.deepEqual(active.map(row => row.id), ['1'])
+  const trash = filterRowsForUrl(rows, 'https://example.test/rest/v1/clients?deleted_at=not.is.null')
+  assert.deepEqual(trash.map(row => row.id), ['2'])
+  const search = filterRowsForUrl(rows, 'https://example.test/rest/v1/clients?or=(first_name.ilike.%25%D0%B1%D0%BE%D1%80%25,phone.eq.79000000001)')
+  assert.deepEqual(search.map(row => row.id), ['1', '2'])
+})

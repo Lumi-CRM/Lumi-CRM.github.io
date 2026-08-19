@@ -122,7 +122,7 @@ const SellerPropertiesPage = () => {
                   <Edit className="w-5 h-5 text-gray-600" />
                 </button>
                 <button
-                  onClick={() => { if (confirm('Удалить анкету?')) deleteSellerProperty(selectedProperty.id); }}
+                  onClick={() => deleteSellerProperty(selectedProperty.id)}
                   className="p-3 rounded-xl hover:bg-red-50"
                 >
                   <Trash2 className="w-5 h-5 text-red-600" />

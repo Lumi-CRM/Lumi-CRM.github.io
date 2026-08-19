@@ -1,5 +1,27 @@
-const { app, BrowserWindow, shell } = require('electron')
+const { app, BrowserWindow, dialog, shell } = require('electron')
+const { autoUpdater } = require('electron-updater')
 const path = require('node:path')
+
+const setupAutoUpdates = () => {
+  if (!app.isPackaged) return
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+  autoUpdater.on('update-downloaded', async info => {
+    const result = await dialog.showMessageBox({
+      type: 'info',
+      title: 'Обновление LumiCRM готово',
+      message: `Версия ${info.version} уже загружена. Перезапустить приложение и установить обновление?`,
+      buttons: ['Перезапустить сейчас', 'Позже'],
+      defaultId: 0,
+      cancelId: 1,
+    })
+    if (result.response === 0) autoUpdater.quitAndInstall(false, true)
+  })
+  autoUpdater.on('error', () => undefined)
+  const check = () => void autoUpdater.checkForUpdates().catch(() => undefined)
+  setTimeout(check, 8_000)
+  setInterval(check, 6 * 60 * 60 * 1_000)
+}
 
 const createWindow = async () => {
   const window = new BrowserWindow({
@@ -29,6 +51,7 @@ const createWindow = async () => {
 
 app.whenReady().then(() => {
   void createWindow()
+  setupAutoUpdates()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) void createWindow()
   })

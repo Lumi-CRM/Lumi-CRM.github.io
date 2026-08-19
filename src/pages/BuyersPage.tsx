@@ -7,6 +7,7 @@ import { Client } from '../types'
 import BuyerForm from '../components/BuyerForm'
 import ActivityTimeline from '../components/ActivityTimeline'
 import EntityFilesPanel from '../components/EntityFilesPanel'
+import { moveToTrash } from '../lib/trash'
 
 interface BuyersPageProps {
   mode?: 'sale' | 'rent'
@@ -32,6 +33,7 @@ const BuyersPage = ({ mode = 'sale' }: BuyersPageProps) => {
       .select('*')
       .eq('user_id', user.id)
       .eq('type', 'buyer')
+      .is('deleted_at', null)
       .order('created_at', { ascending: false })
 
     if (loadError) {
@@ -206,11 +208,11 @@ const BuyersPage = ({ mode = 'sale' }: BuyersPageProps) => {
                 </button>
                 <button
                   onClick={async () => {
-                    if (confirm(mode === 'rent' ? 'Удалить арендатора?' : 'Удалить покупателя?')) {
-                      const { error: deleteError } = await supabase.from('clients').delete().eq('id', selectedBuyer.id).eq('user_id', user!.id)
-                      if (deleteError) setError(deleteError.message)
-                      else await fetchData()
-                    }
+                    try {
+                      await moveToTrash('clients', selectedBuyer.id, user!.id)
+                      setSelectedBuyer(null)
+                      await fetchData()
+                    } catch (deleteError) { setError(deleteError instanceof Error ? deleteError.message : 'Не удалось переместить клиента в корзину.') }
                   }}
                   className="p-3 rounded-xl hover:bg-red-50"
                 >

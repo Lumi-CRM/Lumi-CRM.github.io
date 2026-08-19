@@ -5,7 +5,7 @@ import { themeOptions, useTheme } from '../context/ThemeContext'
 import { registerPushSubscription } from '../lib/pushNotifications'
 import AppDownloadPanel from '../components/AppDownloadPanel'
 import { Capacitor } from '@capacitor/core'
-import { requestNativeNotificationPermission, syncNativeReminders } from '../lib/nativeReminders'
+import { requestExactAlarmPermission, requestNativeNotificationPermission, syncNativeReminders } from '../lib/nativeReminders'
 
 const SettingsPage = () => {
   const { user, updatePreferences, updateNotificationPreferences, updateUser } = useAuth()
@@ -35,9 +35,12 @@ const SettingsPage = () => {
       const granted = await requestNativeNotificationPermission()
       setPermission(granted ? 'granted' : 'denied')
       if (granted) {
+        const exactAlarms = await requestExactAlarmPermission()
         await updateNotificationPreferences({ enabled: true })
         await syncNativeReminders(user.id)
-        setNotificationMessage('Системные уведомления на этом телефоне включены.')
+        setNotificationMessage(exactAlarms
+          ? 'Системные уведомления и точные будильники на этом телефоне включены.'
+          : 'Уведомления включены. Для точного срабатывания разрешите LumiCRM будильники и напоминания в настройках Android.')
       } else {
         setNotificationMessage('Разрешите уведомления для LumiCRM в настройках телефона.')
       }

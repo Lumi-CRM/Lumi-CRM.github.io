@@ -16,7 +16,7 @@ const MeetingsPage = () => {
   const fetchMeetings = async () => {
     if (!user) return
     setLoading(true)
-    const { data } = await supabase.from('events').select('*').eq('type', 'meeting')
+    const { data } = await supabase.from('events').select('*').eq('user_id', user.id).is('deleted_at', null).eq('type', 'meeting')
     if (data) {
       const mapped = data.map(e => ({
         ...e,
@@ -39,7 +39,8 @@ const MeetingsPage = () => {
   }, [user])
 
   const deleteMeeting = async (id: string) => {
-    await supabase.from('events').delete().eq('id', id)
+    if (!user) return
+    await supabase.from('events').update({ deleted_at: new Date().toISOString() }).eq('id', id).eq('user_id', user.id)
     fetchMeetings()
   }
 

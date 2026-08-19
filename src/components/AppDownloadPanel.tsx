@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Download, Laptop, MonitorDown, Share2, Smartphone } from 'lucide-react'
-import { ANDROID_APK_URL, APP_RELEASE_PAGE, detectAppPlatform, type AppPlatform, WINDOWS_INSTALLER_URL } from '../lib/appDownloads'
+import { ANDROID_APK_URL, APP_RELEASE_PAGE, detectAppPlatform, isInstalledApplication, type AppPlatform, WINDOWS_INSTALLER_URL } from '../lib/appDownloads'
+import InstalledAppPanel from './InstalledAppPanel'
 
 interface InstallPromptEvent extends Event {
   prompt: () => Promise<void>
@@ -18,9 +19,11 @@ const AppDownloadPanel = () => {
   const [platform, setPlatform] = useState<AppPlatform>('other')
   const [prompt, setPrompt] = useState<InstallPromptEvent | null>(null)
   const [iosHint, setIosHint] = useState(false)
+  const [installed, setInstalled] = useState(() => isInstalledApplication())
 
   useEffect(() => {
     setPlatform(detectAppPlatform())
+    setInstalled(isInstalledApplication())
     const handlePrompt = (event: Event) => {
       event.preventDefault()
       setPrompt(event as InstallPromptEvent)
@@ -46,6 +49,8 @@ const AppDownloadPanel = () => {
       : null
 
   const PrimaryIcon = primaryAction?.icon ?? Download
+
+  if (installed) return <InstalledAppPanel />
 
   return (
     <section className="lumi-panel rounded-2xl border p-6">

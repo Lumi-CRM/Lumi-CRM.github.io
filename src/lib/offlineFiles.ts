@@ -43,6 +43,15 @@ const DELETIONS = 'deletions'
 const BLOBS = 'blobs'
 const objectUrls = new Map<string, string>()
 let flushPromise: Promise<number> | null = null
+const FILE_SYNC_TIMEOUT_MS = 10_000
+
+const withSyncTimeout = <T,>(request: PromiseLike<T>) => new Promise<T>((resolve, reject) => {
+  const timer = window.setTimeout(() => reject(new Error('FILE_SYNC_TIMEOUT')), FILE_SYNC_TIMEOUT_MS)
+  Promise.resolve(request).then(
+    value => { window.clearTimeout(timer); resolve(value) },
+    error => { window.clearTimeout(timer); reject(error) },
+  )
+})
 
 const openDatabase = () => new Promise<IDBDatabase>((resolve, reject) => {
   const request = indexedDB.open(DB_NAME, DB_VERSION)
@@ -214,11 +223,11 @@ export const flushOfflineFiles = async (userId: string) => {
 
     for (const item of uploads) {
       try {
-        const { error: uploadError } = await supabase.storage.from(item.record.bucket).upload(item.record.storage_path, item.blob, {
+        const { error: uploadError } = await withSyncTimeout(supabase.storage.from(item.record.bucket).upload(item.record.storage_path, item.blob, {
           cacheControl: '86400',
           upsert: false,
           contentType: item.record.mime_type || undefined,
-        })
+        }))
         if (uploadError && !isAlreadyUploaded(uploadError.message)) throw uploadError
         const { error: databaseError } = await supabase.from('crm_files').upsert(item.record, { onConflict: 'id' })
         if (databaseError) throw databaseError
@@ -235,7 +244,7 @@ export const flushOfflineFiles = async (userId: string) => {
 
     for (const item of deletions) {
       try {
-        const { error } = await supabase.storage.from(item.file.bucket).remove([item.file.storage_path])
+        const { error } = await withSyncTimeout(supabase.storage.from(item.file.bucket).remove([item.file.storage_path]))
         if (error && !/not found/i.test(error.message)) throw error
         await runStore(DELETIONS, 'readwrite', store => store.delete(item.id))
         synced += 1

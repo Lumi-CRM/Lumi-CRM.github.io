@@ -29,8 +29,8 @@ const FavoritesPage = () => {
     setLoading(true)
     setError('')
     const [propertyResult, clientResult] = await Promise.all([
-      supabase.from('properties').select('*').eq('user_id', user.id).eq('is_favorite', true).order('updated_at', { ascending: false }),
-      supabase.from('clients').select('*').eq('user_id', user.id).eq('is_favorite', true).order('updated_at', { ascending: false }),
+      supabase.from('properties').select('*').eq('user_id', user.id).is('deleted_at', null).eq('is_favorite', true).order('updated_at', { ascending: false }),
+      supabase.from('clients').select('*').eq('user_id', user.id).is('deleted_at', null).eq('is_favorite', true).order('updated_at', { ascending: false }),
     ])
     if (propertyResult.error || clientResult.error) setError('Не удалось загрузить избранное. Повторите попытку.')
     setProperties((propertyResult.data ?? []).map(item => mapProperty(item as Record<string, unknown>)))

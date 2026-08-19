@@ -77,6 +77,35 @@ const defaultNotificationPreferences: NotificationPreferences = {
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 const onboardingStorageKey = (userId: string) => `lumicrm-onboarding-completed:${userId}`
+const userSnapshotStorageKey = (userId: string) => `lumicrm-user-snapshot:${userId}`
+const lastUserStorageKey = 'lumicrm-last-user-id'
+
+const readUserSnapshot = (userId: string) => {
+  try {
+    const value = window.localStorage.getItem(userSnapshotStorageKey(userId))
+    return value ? JSON.parse(value) as User : null
+  } catch {
+    return null
+  }
+}
+
+const saveUserSnapshot = (user: User) => {
+  try {
+    window.localStorage.setItem(userSnapshotStorageKey(user.id), JSON.stringify(user))
+    window.localStorage.setItem(lastUserStorageKey, user.id)
+  } catch {
+    // Indexed cloud data remains available when browser storage is restricted.
+  }
+}
+
+const readLastUserSnapshot = () => {
+  try {
+    const userId = window.localStorage.getItem(lastUserStorageKey)
+    return userId ? readUserSnapshot(userId) : null
+  } catch {
+    return null
+  }
+}
 
 const hasLocalOnboardingCompletion = (userId: string) => {
   try {
@@ -151,8 +180,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       .maybeSingle()
 
     if (profileError) console.error('Failed to load LumiCRM profile:', profileError)
-    const mappedUser = mapSupabaseUser(source, profile as Record<string, unknown> | null)
+    const cachedUser = readUserSnapshot(source.id)
+    const mappedUser = profileError && cachedUser
+      ? cachedUser
+      : mapSupabaseUser(source, profile as Record<string, unknown> | null)
     if (hasLocalOnboardingCompletion(source.id)) mappedUser.onboardingCompleted = true
+    saveUserSnapshot(mappedUser)
     setUser(mappedUser)
   }
 
@@ -163,7 +196,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const { data, error: sessionError } = await supabase.auth.getSession()
       if (!mounted) return
       if (sessionError) setError('Не удалось проверить сессию Supabase')
-      await loadUser(data.session?.user ?? null)
+      if (sessionError && !data.session) {
+        const cachedUser = readLastUserSnapshot()
+        if (cachedUser) setUser(cachedUser)
+        else await loadUser(null)
+      } else {
+        await loadUser(data.session?.user ?? null)
+      }
       if (mounted) setIsLoading(false)
     }
 
@@ -273,11 +312,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return
     }
 
-    setUser(previous => previous ? {
-      ...previous,
-      ...data,
-      displayName: `${data.firstName ?? previous.firstName} ${data.lastName ?? previous.lastName}`.trim(),
-    } : null)
+    setUser(previous => {
+      if (!previous) return null
+      const next = {
+        ...previous,
+        ...data,
+        displayName: `${data.firstName ?? previous.firstName} ${data.lastName ?? previous.lastName}`.trim(),
+      }
+      saveUserSnapshot(next)
+      return next
+    })
   }
 
   const updatePreferences = async (data: Partial<UiPreferences>) => {
@@ -289,7 +333,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setError('Не удалось сохранить настройки интерфейса')
       return false
     }
-    setUser(previous => previous ? { ...previous, preferences } : null)
+    setUser(previous => {
+      if (!previous) return null
+      const next = { ...previous, preferences }
+      saveUserSnapshot(next)
+      return next
+    })
     return true
   }
 
@@ -305,7 +354,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setError('Не удалось сохранить настройки уведомлений')
       return false
     }
-    setUser(previous => previous ? { ...previous, notificationPreferences } : null)
+    setUser(previous => {
+      if (!previous) return null
+      const next = { ...previous, notificationPreferences }
+      saveUserSnapshot(next)
+      return next
+    })
     return true
   }
 
@@ -320,17 +374,31 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       // Onboarding must never lock a user out of the CRM. Keep a local marker
       // and retry the cloud state naturally on the next successful completion.
       saveLocalOnboardingCompletion(user.id)
-      setUser(previous => previous ? { ...previous, onboardingCompleted: true } : null)
+      setUser(previous => {
+        if (!previous) return null
+        const next = { ...previous, onboardingCompleted: true }
+        saveUserSnapshot(next)
+        return next
+      })
       return true
     }
     saveLocalOnboardingCompletion(user.id)
-    setUser(previous => previous ? { ...previous, onboardingCompleted: true } : null)
+    setUser(previous => {
+      if (!previous) return null
+      const next = { ...previous, onboardingCompleted: true }
+      saveUserSnapshot(next)
+      return next
+    })
     return true
   }
 
   const logout = async () => {
     const { error: logoutError } = await supabase.auth.signOut()
     if (logoutError) setError('Не удалось завершить сессию')
+    else {
+      window.localStorage.removeItem(lastUserStorageKey)
+      setUser(null)
+    }
   }
 
   if (isLoading) {

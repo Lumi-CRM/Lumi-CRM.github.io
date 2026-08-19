@@ -4,13 +4,13 @@ import { ArrowLeft, Camera, FileText, Edit, Trash2, Users } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import PropertyForm from '../components/PropertyForm'
-import Modal from '../components/Modal'
 import EntityFilesPanel from '../components/EntityFilesPanel'
 import PropertyMediaPanel from '../components/PropertyMediaPanel'
 import ActivityTimeline from '../components/ActivityTimeline'
 import PropertyShowingsPanel from '../components/PropertyShowingsPanel'
 import SharePropertyButton from '../components/SharePropertyButton'
 import { Property, Client } from '../types'
+import { moveToTrash } from '../lib/trash'
 
 const PropertyDetailPage = () => {
   const navigate = useNavigate()
@@ -22,15 +22,14 @@ const PropertyDetailPage = () => {
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState<'info' | 'photos' | 'documents' | 'showings'>('info')
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
 
   const fetchData = async () => {
     if (!id || !user) return
     setLoading(true)
     
     const [propResult, clientsResult] = await Promise.all([
-      supabase.from('properties').select('*').eq('id', id).eq('user_id', user.id).single(),
-      supabase.from('clients').select('*').eq('user_id', user.id)
+      supabase.from('properties').select('*').eq('id', id).eq('user_id', user.id).is('deleted_at', null).single(),
+      supabase.from('clients').select('*').eq('user_id', user.id).is('deleted_at', null)
     ])
 
     if (propResult.data) {
@@ -39,6 +38,7 @@ const PropertyDetailPage = () => {
         userId: propResult.data.user_id,
         ownerId: propResult.data.owner_id,
         listingType: propResult.data.listing_type,
+        workStream: propResult.data.work_stream || 'active',
         propertyType: propResult.data.property_type,
         sourceUrl: propResult.data.source_url,
         totalFloors: propResult.data.total_floors,
@@ -86,7 +86,7 @@ const PropertyDetailPage = () => {
 
   const handleDelete = async () => {
     if (!id || !user) return
-    await supabase.from('properties').delete().eq('id', id).eq('user_id', user.id)
+    await moveToTrash('properties', id, user.id)
     navigate('/properties')
   }
 
@@ -152,7 +152,7 @@ const PropertyDetailPage = () => {
             Редактировать
           </button>
           <button
-            onClick={() => setIsDeleteModalOpen(true)}
+            onClick={() => void handleDelete()}
             className="px-4 py-2 bg-red-600 text-white rounded-xl font-medium hover:bg-red-700 transition flex items-center gap-2"
           >
             <Trash2 className="w-4 h-4" />
@@ -355,22 +355,6 @@ const PropertyDetailPage = () => {
         property={property}
         clients={owners}
       />
-      <Modal isOpen={isDeleteModalOpen} onClose={() => setIsDeleteModalOpen(false)} title="Подтвердите удаление">
-        <div className="text-center">
-          <p className="text-lg mb-6 text-gray-700 dark:text-gray-300">Вы действительно хотите удалить этот объект?</p>
-          <div className="flex gap-3">
-            <button onClick={() => setIsDeleteModalOpen(false)} className="flex-1 px-6 py-3 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-600 transition">
-              Отмена
-            </button>
-            <button
-              onClick={handleDelete}
-              className="flex-1 px-6 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition"
-            >
-              Удалить
-            </button>
-          </div>
-        </div>
-      </Modal>
     </div>
   )
 }

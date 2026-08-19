@@ -138,7 +138,7 @@ const BuyerRequestsPage = () => {
                   <Edit className="w-5 h-5 text-gray-600" />
                 </button>
                 <button
-                  onClick={() => { if (confirm('Удалить анкету?')) deleteBuyerRequest(selectedRequest.id); }}
+                  onClick={() => deleteBuyerRequest(selectedRequest.id)}
                   className="p-3 rounded-xl hover:bg-red-50"
                 >
                   <Trash2 className="w-5 h-5 text-red-600" />
