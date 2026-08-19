@@ -22,6 +22,7 @@ const WORKSPACE_TABLES = [
   'tasks',
   'events',
   'deals',
+  'deal_participants',
   'crm_activities',
   'crm_files',
   'property_details',

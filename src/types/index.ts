@@ -80,7 +80,9 @@ export interface Deal {
   userId?: string
   propertyId: string
   buyerId?: string
+  buyerIds?: string[]
   ownerId?: string
+  ownerIds?: string[]
   price: number | undefined
   agencyIncome?: number
   agentIncome?: number

@@ -4,13 +4,14 @@ import { motion } from 'framer-motion'
 import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { dealFinanceKey, formatMoney, indexDealFinance } from '../lib/dealFinance'
+import { indexDealParticipants, makeDealParticipantRows, participantIdsWithLegacyFallback } from '../lib/dealParticipants'
 import Modal from '../components/Modal'
 import type { Deal } from '../types'
 
 type DealFormData = {
   propertyId: string
-  buyerId: string
-  ownerId: string
+  buyerIds: string[]
+  ownerIds: string[]
   price: number | undefined
   agencyIncome: number | undefined
   agentIncome: number | undefined
@@ -36,8 +37,8 @@ type DealClient = {
 
 const emptyForm: DealFormData = {
   propertyId: '',
-  buyerId: '',
-  ownerId: '',
+  buyerIds: [''],
+  ownerIds: [''],
   price: undefined,
   agencyIncome: undefined,
   agentIncome: undefined,
@@ -67,13 +68,14 @@ const DealsPage = () => {
     setLoading(true)
     setError('')
     try {
-      const [dealsResult, propertiesResult, clientsResult, financeResult] = await Promise.all([
+      const [dealsResult, propertiesResult, clientsResult, financeResult, participantsResult] = await Promise.all([
         supabase.from('deals').select('*').eq('user_id', user.id).is('deleted_at', null).order('created_at', { ascending: false }),
         supabase.from('properties').select('id,address,price,owner_id').eq('user_id', user.id).is('deleted_at', null).order('created_at', { ascending: false }),
         supabase.from('clients').select('id,first_name,last_name,phone,type,roles').eq('user_id', user.id).is('deleted_at', null).order('created_at', { ascending: false }),
         supabase.from('crm_activities').select('id,external_key,metadata').eq('user_id', user.id).eq('type', 'note').ilike('external_key', 'deal-finance:%').is('deleted_at', null),
+        supabase.from('deal_participants').select('deal_id,client_id,role').eq('user_id', user.id),
       ])
-      const firstError = [dealsResult.error, propertiesResult.error, clientsResult.error, financeResult.error].find(Boolean)
+      const firstError = [dealsResult.error, propertiesResult.error, clientsResult.error, financeResult.error, participantsResult.error].find(Boolean)
       if (firstError) throw firstError
 
       const mappedProperties = (propertiesResult.data ?? []).map(item => ({
@@ -92,21 +94,30 @@ const DealsPage = () => {
         roles: item.roles || [],
       })))
       const financeByDeal = indexDealFinance(financeResult.data ?? [])
+      const participantsByDeal = indexDealParticipants(participantsResult.data ?? [])
       setFinanceActivityIds(new Map((financeResult.data ?? []).map(item => [String(item.external_key).replace(/^deal-finance:/, ''), String(item.id)])))
-      setDeals((dealsResult.data ?? []).map(item => ({
-        id: item.id,
-        userId: item.user_id,
-        propertyId: item.property_id,
-        buyerId: item.buyer_id || undefined,
-        ownerId: mappedProperties.find(property => property.id === item.property_id)?.ownerId,
-        price: item.price === null ? undefined : Number(item.price),
-        agencyIncome: financeByDeal.get(item.id)?.agencyIncome,
-        agentIncome: financeByDeal.get(item.id)?.agentIncome,
-        status: item.status,
-        notes: item.notes || undefined,
-        createdAt: item.created_at,
-        updatedAt: item.updated_at || item.created_at,
-      })))
+      setDeals((dealsResult.data ?? []).map(item => {
+        const legacyOwnerId = mappedProperties.find(property => property.id === item.property_id)?.ownerId
+        const participants = participantsByDeal.get(item.id)
+        const buyerIds = participantIdsWithLegacyFallback(participants?.buyerIds, item.buyer_id || undefined)
+        const ownerIds = participantIdsWithLegacyFallback(participants?.ownerIds, legacyOwnerId)
+        return {
+          id: item.id,
+          userId: item.user_id,
+          propertyId: item.property_id,
+          buyerId: buyerIds[0],
+          buyerIds,
+          ownerId: ownerIds[0],
+          ownerIds,
+          price: item.price === null ? undefined : Number(item.price),
+          agencyIncome: financeByDeal.get(item.id)?.agencyIncome,
+          agentIncome: financeByDeal.get(item.id)?.agentIncome,
+          status: item.status,
+          notes: item.notes || undefined,
+          createdAt: item.created_at,
+          updatedAt: item.updated_at || item.created_at,
+        }
+      }))
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Не удалось загрузить сделки')
     } finally {
@@ -130,8 +141,10 @@ const DealsPage = () => {
     setEditingDeal(deal ?? null)
     setFormData(deal ? {
       propertyId: deal.propertyId,
-      buyerId: deal.buyerId || '',
-      ownerId: deal.ownerId || properties.find(property => property.id === deal.propertyId)?.ownerId || '',
+      buyerIds: participantIdsWithLegacyFallback(deal.buyerIds, deal.buyerId).length > 0 ? participantIdsWithLegacyFallback(deal.buyerIds, deal.buyerId) : [''],
+      ownerIds: participantIdsWithLegacyFallback(deal.ownerIds, deal.ownerId || properties.find(property => property.id === deal.propertyId)?.ownerId).length > 0
+        ? participantIdsWithLegacyFallback(deal.ownerIds, deal.ownerId || properties.find(property => property.id === deal.propertyId)?.ownerId)
+        : [''],
       price: deal.price,
       agencyIncome: deal.agencyIncome,
       agentIncome: deal.agentIncome,
@@ -146,9 +159,21 @@ const DealsPage = () => {
     setFormData(current => ({
       ...current,
       propertyId,
-      ownerId: property?.ownerId || current.ownerId,
+      ownerIds: property?.ownerId && !current.ownerIds.some(Boolean) ? [property.ownerId] : current.ownerIds,
       price: current.price ?? property?.price,
     }))
+  }
+
+  const addParticipant = (field: 'buyerIds' | 'ownerIds') => {
+    setFormData(current => ({ ...current, [field]: [...current[field], ''] }))
+  }
+
+  const changeParticipant = (field: 'buyerIds' | 'ownerIds', index: number, clientId: string) => {
+    setFormData(current => ({ ...current, [field]: current[field].map((value, itemIndex) => itemIndex === index ? clientId : value) }))
+  }
+
+  const removeParticipant = (field: 'buyerIds' | 'ownerIds', index: number) => {
+    setFormData(current => ({ ...current, [field]: current[field].filter((_, itemIndex) => itemIndex !== index) }))
   }
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -157,11 +182,14 @@ const DealsPage = () => {
     setSaving(true)
     setError('')
     try {
+      const buyerIds = [...new Set(formData.buyerIds.filter(Boolean))]
+      const ownerIds = [...new Set(formData.ownerIds.filter(Boolean))]
+      if (buyerIds.length === 0 || ownerIds.length === 0) throw new Error('Выберите хотя бы одного покупателя и одного собственника')
       const selectedProperty = properties.find(property => property.id === formData.propertyId)
-      if (formData.ownerId && selectedProperty?.ownerId !== formData.ownerId) {
+      if (selectedProperty?.ownerId !== ownerIds[0]) {
         const { error: propertyError } = await supabase
           .from('properties')
-          .update({ owner_id: formData.ownerId })
+          .update({ owner_id: ownerIds[0] })
           .eq('id', formData.propertyId)
           .eq('user_id', user.id)
         if (propertyError) throw propertyError
@@ -170,7 +198,7 @@ const DealsPage = () => {
       const payload = {
         user_id: user.id,
         property_id: formData.propertyId,
-        buyer_id: formData.buyerId,
+        buyer_id: buyerIds[0],
         price: formData.price ?? null,
         status: formData.status,
         notes: formData.notes || null,
@@ -184,6 +212,12 @@ const DealsPage = () => {
         if (dealError) throw dealError
         dealId = createdDeal.id
       }
+
+      const { error: removeParticipantsError } = await supabase.from('deal_participants').delete().eq('deal_id', dealId!).eq('user_id', user.id)
+      if (removeParticipantsError) throw removeParticipantsError
+      const participantRows = makeDealParticipantRows(user.id, dealId!, buyerIds, ownerIds)
+      const { error: participantsError } = await supabase.from('deal_participants').insert(participantRows)
+      if (participantsError) throw participantsError
 
       const financePayload = {
         user_id: user.id,
@@ -261,8 +295,8 @@ const DealsPage = () => {
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
           {deals.map((deal, index) => {
             const property = properties.find(item => item.id === deal.propertyId)
-            const buyer = buyers.find(item => item.id === deal.buyerId)
-            const owner = owners.find(item => item.id === (deal.ownerId || property?.ownerId))
+            const dealBuyers = participantIdsWithLegacyFallback(deal.buyerIds, deal.buyerId).map(id => buyers.find(item => item.id === id)).filter((client): client is DealClient => Boolean(client))
+            const dealOwners = participantIdsWithLegacyFallback(deal.ownerIds, deal.ownerId || property?.ownerId).map(id => owners.find(item => item.id === id)).filter((client): client is DealClient => Boolean(client))
             return (
               <motion.article key={deal.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.025 }} className="lumi-panel rounded-2xl border p-5">
                 <div className="flex items-start justify-between gap-3">
@@ -279,8 +313,8 @@ const DealsPage = () => {
                     <div className="lumi-panel-muted rounded-xl border p-3"><p className="lumi-muted text-xs">Доход агента</p><p className="lumi-text mt-1 font-semibold">{formatMoney(deal.agentIncome)}</p></div>
                   </div>
                   <div className="lumi-panel-muted flex items-center gap-3 rounded-xl border p-3"><Building2 className="lumi-accent-text h-4 w-4" /><span className="lumi-muted-strong text-sm">{property?.address || 'Объект не найден'}</span></div>
-                  <div className="lumi-panel-muted flex items-center gap-3 rounded-xl border p-3"><Users className="lumi-accent-text h-4 w-4" /><span className="lumi-muted-strong text-sm">Покупатель: {clientName(buyer)}</span></div>
-                  <div className="lumi-panel-muted flex items-center gap-3 rounded-xl border p-3"><Users className="lumi-accent-text h-4 w-4" /><span className="lumi-muted-strong text-sm">Собственник: {clientName(owner)}</span></div>
+                  <div className="lumi-panel-muted flex items-start gap-3 rounded-xl border p-3"><Users className="lumi-accent-text mt-0.5 h-4 w-4 shrink-0" /><span className="lumi-muted-strong text-sm">Покупатели: {dealBuyers.length > 0 ? dealBuyers.map(clientName).join(', ') : 'Не выбраны'}</span></div>
+                  <div className="lumi-panel-muted flex items-start gap-3 rounded-xl border p-3"><Users className="lumi-accent-text mt-0.5 h-4 w-4 shrink-0" /><span className="lumi-muted-strong text-sm">Собственники: {dealOwners.length > 0 ? dealOwners.map(clientName).join(', ') : 'Не выбраны'}</span></div>
                   {deal.notes && <p className="lumi-muted whitespace-pre-wrap text-sm">{deal.notes}</p>}
                 </div>
                 <div className="mt-4 flex justify-end gap-2">
@@ -308,18 +342,12 @@ const DealsPage = () => {
             </select>
           </div>
           <div>
-            <label className="lumi-muted-strong mb-2 block text-sm font-medium">Покупатель *</label>
-            <select required value={formData.buyerId} onChange={event => setFormData(current => ({ ...current, buyerId: event.target.value }))} className="lumi-control w-full rounded-xl px-4 py-3 outline-none">
-              <option value="">Выберите покупателя</option>
-              {buyers.map(buyer => <option key={buyer.id} value={buyer.id}>{clientName(buyer)}{buyer.phone ? ` · ${buyer.phone}` : ''}</option>)}
-            </select>
+            <div className="mb-2 flex items-center justify-between gap-3"><label className="lumi-muted-strong text-sm font-medium">Покупатели *</label><button type="button" onClick={() => addParticipant('buyerIds')} className="lumi-accent-text flex items-center gap-1 rounded-lg px-2 py-1 text-sm font-semibold"><Plus className="h-4 w-4" />Добавить</button></div>
+            <div className="space-y-2">{formData.buyerIds.map((buyerId, index) => <div key={index} className="flex items-center gap-2"><select required value={buyerId} onChange={event => changeParticipant('buyerIds', index, event.target.value)} className="lumi-control min-w-0 flex-1 rounded-xl px-4 py-3 outline-none"><option value="">Выберите покупателя</option>{buyers.map(buyer => <option key={buyer.id} value={buyer.id} disabled={buyer.id !== buyerId && formData.buyerIds.includes(buyer.id)}>{clientName(buyer)}{buyer.phone ? ` · ${buyer.phone}` : ''}</option>)}</select>{formData.buyerIds.length > 1 && <button type="button" onClick={() => removeParticipant('buyerIds', index)} className="rounded-xl bg-red-500/10 p-3 text-red-500" aria-label={`Удалить покупателя ${index + 1}`}><Trash2 className="h-5 w-5" /></button>}</div>)}</div>
           </div>
           <div>
-            <label className="lumi-muted-strong mb-2 block text-sm font-medium">Собственник *</label>
-            <select required value={formData.ownerId} onChange={event => setFormData(current => ({ ...current, ownerId: event.target.value }))} className="lumi-control w-full rounded-xl px-4 py-3 outline-none">
-              <option value="">Выберите собственника</option>
-              {owners.map(owner => <option key={owner.id} value={owner.id}>{clientName(owner)}{owner.phone ? ` · ${owner.phone}` : ''}</option>)}
-            </select>
+            <div className="mb-2 flex items-center justify-between gap-3"><label className="lumi-muted-strong text-sm font-medium">Собственники *</label><button type="button" onClick={() => addParticipant('ownerIds')} className="lumi-accent-text flex items-center gap-1 rounded-lg px-2 py-1 text-sm font-semibold"><Plus className="h-4 w-4" />Добавить</button></div>
+            <div className="space-y-2">{formData.ownerIds.map((ownerId, index) => <div key={index} className="flex items-center gap-2"><select required value={ownerId} onChange={event => changeParticipant('ownerIds', index, event.target.value)} className="lumi-control min-w-0 flex-1 rounded-xl px-4 py-3 outline-none"><option value="">Выберите собственника</option>{owners.map(owner => <option key={owner.id} value={owner.id} disabled={owner.id !== ownerId && formData.ownerIds.includes(owner.id)}>{clientName(owner)}{owner.phone ? ` · ${owner.phone}` : ''}</option>)}</select>{formData.ownerIds.length > 1 && <button type="button" onClick={() => removeParticipant('ownerIds', index)} className="rounded-xl bg-red-500/10 p-3 text-red-500" aria-label={`Удалить собственника ${index + 1}`}><Trash2 className="h-5 w-5" /></button>}</div>)}</div>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             <div>

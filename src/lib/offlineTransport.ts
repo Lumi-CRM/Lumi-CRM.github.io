@@ -45,6 +45,7 @@ const UUID_TABLES = new Set([
   'tasks',
   'events',
   'deals',
+  'deal_participants',
   'crm_activities',
   'crm_files',
   'client_requirements',
