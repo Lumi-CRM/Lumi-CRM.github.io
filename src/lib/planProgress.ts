@@ -16,3 +16,9 @@ export const calculatePlanProgress = (actualValue: number, targetValue: number):
     label: `${percent}%`,
   }
 }
+
+export const calculateCombinedPlanActual = (automaticValue: number, weeklyManualValues: number[]) => {
+  const automatic = Math.max(0, Number(automaticValue) || 0)
+  const manual = weeklyManualValues.reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0)
+  return { automatic, manual, total: automatic + manual }
+}

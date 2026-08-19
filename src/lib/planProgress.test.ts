@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { calculatePlanProgress } from './planProgress.ts'
+import { calculateCombinedPlanActual, calculatePlanProgress } from './planProgress.ts'
 
 test('marks a zero target as not planned', () => {
   assert.deepEqual(calculatePlanProgress(0, 0), {
@@ -23,5 +23,13 @@ test('rounds regular completion to the nearest percentage', () => {
     percent: 1,
     barPercent: 1,
     label: '1%',
+  })
+})
+
+test('adds manual weekly completion to automatic CRM facts', () => {
+  assert.deepEqual(calculateCombinedPlanActual(12, [265, 0, 5, -10, Number.NaN]), {
+    automatic: 12,
+    manual: 270,
+    total: 282,
   })
 })
