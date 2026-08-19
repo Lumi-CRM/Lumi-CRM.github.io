@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { printCurrentPage } from '../lib/print'
 import { indexDealFinance } from '../lib/dealFinance'
-import { calculateCombinedPlanActual, calculatePlanProgress } from '../lib/planProgress'
+import { calculateCombinedPlanActual, calculatePlanProgress, parsePlanNumberDraft } from '../lib/planProgress'
 
 const METRICS = [
   ['coldCalls', 'Холодные звонки', 'count'], ['meetings', 'Встречи', 'count'], ['posting', 'Расклейка', 'count'],
@@ -29,6 +29,33 @@ const currentMonthRange = () => {
 interface PlanRow { id: string; title: string; starts_on: string; ends_on: string; targets: Partial<TargetMap>; weekly_targets: Array<Partial<TargetMap>> }
 interface ActivityRow { type: string; occurred_at: string | null; external_key: string | null; metadata: Record<string, unknown> | null }
 interface DealRow { id: string; property_id: string; price: number | null; status: string; created_at: string }
+
+interface PlanNumberInputProps {
+  value: number
+  ariaLabel: string
+  className: string
+  onValueChange: (value: number) => void
+}
+
+const PlanNumberInput = ({ value, ariaLabel, className, onValueChange }: PlanNumberInputProps) => {
+  const [draft, setDraft] = useState(String(value))
+
+  useEffect(() => { setDraft(String(value)) }, [value])
+
+  const changeDraft = (next: string) => {
+    setDraft(next)
+    const parsed = parsePlanNumberDraft(next)
+    if (parsed !== null) onValueChange(parsed)
+  }
+
+  const finishEditing = () => {
+    const parsed = parsePlanNumberDraft(draft) ?? 0
+    setDraft(String(parsed))
+    onValueChange(parsed)
+  }
+
+  return <input aria-label={ariaLabel} type="number" min="0" value={draft} onChange={event => changeDraft(event.target.value)} onBlur={finishEditing} className={className} />
+}
 
 const MonthlyPlanPage = () => {
   const { user } = useAuth()
@@ -110,8 +137,8 @@ const MonthlyPlanPage = () => {
     else { setPlanId(result.data.id); setMessage('План сохранён и синхронизирован с базой.') }
   }
 
-  const changeTarget = (key: MetricKey, value: string) => setTargets(current => ({ ...current, [key]: Math.max(0, Number(value) || 0) }))
-  const changeWeekActual = (week: number, key: MetricKey, value: string) => setWeeklyActuals(current => current.map((item, index) => index === week ? { ...item, [key]: Math.max(0, Number(value) || 0) } : item))
+  const changeTarget = (key: MetricKey, value: number) => setTargets(current => ({ ...current, [key]: value }))
+  const changeWeekActual = (week: number, key: MetricKey, value: number) => setWeeklyActuals(current => current.map((item, index) => index === week ? { ...item, [key]: value } : item))
 
   return <div className="min-w-0 space-y-6 pb-10">
     <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="lumi-text text-3xl font-bold">План работы</h1><p className="lumi-muted mt-1">Цели месяца, недельная разбивка и автоматический факт из CRM.</p></div><div className="flex flex-col gap-2 sm:flex-row"><button type="button" onClick={() => void printCurrentPage()} className="lumi-control flex items-center justify-center gap-2 rounded-xl px-4 py-3"><Download className="h-4 w-4" />PDF</button><button type="button" disabled={saving} onClick={() => void save()} className="lumi-gradient-button flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold disabled:opacity-60"><Save className="h-4 w-4" />{saving ? 'Сохраняем…' : 'Сохранить'}</button></div></div>
@@ -122,7 +149,7 @@ const MonthlyPlanPage = () => {
       const breakdown = actualBreakdown[key]
       const progress = calculatePlanProgress(breakdown.total, target)
       const money = (value: number) => unit === 'money' ? `${value.toLocaleString('ru-RU')} ₽` : value
-      return <section key={key} className="lumi-panel rounded-2xl border p-5"><div className="flex items-start gap-3"><div className="lumi-accent-soft rounded-xl p-2.5"><Target className="h-5 w-5" /></div><div className="min-w-0 flex-1"><h2 className="lumi-text font-semibold">{label}</h2><p className="lumi-muted mt-1 text-sm">Факт: <strong className="lumi-text">{money(breakdown.total)}</strong> из {money(target)}</p><p className="lumi-muted mt-1 text-xs">Автоматически из CRM: {money(breakdown.automatic)} · Вручную: {money(breakdown.manual)}</p></div><input aria-label={`План: ${label}`} type="number" min="0" value={target} onChange={event => changeTarget(key, event.target.value)} className="lumi-control w-28 rounded-xl px-3 py-2 text-right" /></div><div className="lumi-control mt-4 h-2 overflow-hidden rounded-full"><div className="h-full rounded-full bg-[var(--lumi-accent)] transition-all" style={{ width: `${progress.barPercent}%` }} /></div><p className="lumi-muted mt-1 text-right text-xs">{progress.label}</p><p className="lumi-muted mt-4 text-xs font-medium uppercase tracking-wide">Ручной факт по неделям</p><div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">{weeklyActuals.map((week, index) => <label key={index} className="lumi-muted text-xs">{index + 1} нед.<input aria-label={`${label}, ручной факт за неделю ${index + 1}`} type="number" min="0" value={week[key]} onChange={event => changeWeekActual(index, key, event.target.value)} className="lumi-control mt-1 w-full rounded-lg px-2 py-2 text-right" /></label>)}</div></section>
+      return <section key={key} className="lumi-panel rounded-2xl border p-5"><div className="flex items-start gap-3"><div className="lumi-accent-soft rounded-xl p-2.5"><Target className="h-5 w-5" /></div><div className="min-w-0 flex-1"><h2 className="lumi-text font-semibold">{label}</h2><p className="lumi-muted mt-1 text-sm">Факт: <strong className="lumi-text">{money(breakdown.total)}</strong> из {money(target)}</p><p className="lumi-muted mt-1 text-xs">Автоматически из CRM: {money(breakdown.automatic)} · Вручную: {money(breakdown.manual)}</p></div><PlanNumberInput ariaLabel={`План: ${label}`} value={target} onValueChange={value => changeTarget(key, value)} className="lumi-control w-28 rounded-xl px-3 py-2 text-right" /></div><div className="lumi-control mt-4 h-2 overflow-hidden rounded-full"><div className="h-full rounded-full bg-[var(--lumi-accent)] transition-all" style={{ width: `${progress.barPercent}%` }} /></div><p className="lumi-muted mt-1 text-right text-xs">{progress.label}</p><p className="lumi-muted mt-4 text-xs font-medium uppercase tracking-wide">Ручной факт по неделям</p><div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-5">{weeklyActuals.map((week, index) => <label key={index} className="lumi-muted text-xs">{index + 1} нед.<PlanNumberInput ariaLabel={`${label}, ручной факт за неделю ${index + 1}`} value={week[key]} onValueChange={value => changeWeekActual(index, key, value)} className="lumi-control mt-1 w-full rounded-lg px-2 py-2 text-right" /></label>)}</div></section>
     })}</div>}
     <section className="lumi-panel-muted lumi-muted flex items-start gap-3 rounded-2xl border p-5 text-sm"><CalendarRange className="lumi-accent-text mt-0.5 h-5 w-5 shrink-0" /><p>Холодные звонки, встречи и закрытые сделки считаются автоматически. Остальные виды работы будут подтягиваться по мере добавления соответствующих журналов.</p></section>
   </div>

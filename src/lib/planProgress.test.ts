@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { calculateCombinedPlanActual, calculatePlanProgress } from './planProgress.ts'
+import { calculateCombinedPlanActual, calculatePlanProgress, parsePlanNumberDraft } from './planProgress.ts'
 
 test('marks a zero target as not planned', () => {
   assert.deepEqual(calculatePlanProgress(0, 0), {
@@ -32,4 +32,10 @@ test('adds manual weekly completion to automatic CRM facts', () => {
     manual: 270,
     total: 282,
   })
+})
+
+test('keeps an emptied plan field editable until the user enters a value', () => {
+  assert.equal(parsePlanNumberDraft(''), null)
+  assert.equal(parsePlanNumberDraft('0'), 0)
+  assert.equal(parsePlanNumberDraft('265'), 265)
 })

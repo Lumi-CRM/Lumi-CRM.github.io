@@ -22,3 +22,9 @@ export const calculateCombinedPlanActual = (automaticValue: number, weeklyManual
   const manual = weeklyManualValues.reduce((sum, value) => sum + Math.max(0, Number(value) || 0), 0)
   return { automatic, manual, total: automatic + manual }
 }
+
+export const parsePlanNumberDraft = (value: string) => {
+  if (value.trim() === '') return null
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : null
+}
