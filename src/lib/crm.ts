@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { indexDealFinance } from './dealFinance'
 
 export type OverviewTask = {
   id: string
@@ -40,6 +41,8 @@ export type CrmOverview = {
     periods: Record<'days' | 'weeks' | 'months', AnalyticsPoint[]>
     propertyTypes: Array<{ name: string; value: number }>
     totalDealVolume: number
+    totalAgencyIncome: number
+    totalAgentIncome: number
   }
 }
 
@@ -99,11 +102,11 @@ const emptyOverview: CrmOverview = {
   tasks: [],
   events: [],
   recentProperties: [],
-  analytics: { months: makePeriods().months, periods: makePeriods(), propertyTypes: [], totalDealVolume: 0 },
+  analytics: { months: makePeriods().months, periods: makePeriods(), propertyTypes: [], totalDealVolume: 0, totalAgencyIncome: 0, totalAgentIncome: 0 },
 }
 
 export async function getCrmOverview(): Promise<CrmOverview> {
-  const [clients, properties, tasks, events, deals] = await Promise.all([
+  const [clients, properties, tasks, events, deals, financeActivities] = await Promise.all([
     supabase.from('clients').select('id,type,roles,mortgage_status,created_at').is('deleted_at', null),
     supabase
       .from('properties')
@@ -126,9 +129,10 @@ export async function getCrmOverview(): Promise<CrmOverview> {
       .order('event_date', { ascending: true })
       .limit(8),
     supabase.from('deals').select('id,status,price,created_at').is('deleted_at', null),
+    supabase.from('crm_activities').select('external_key,metadata').eq('type', 'note').ilike('external_key', 'deal-finance:%').is('deleted_at', null),
   ])
 
-  const firstError = [clients.error, properties.error, tasks.error, events.error, deals.error].find(Boolean)
+  const firstError = [clients.error, properties.error, tasks.error, events.error, deals.error, financeActivities.error].find(Boolean)
   if (firstError) throw firstError
 
   const periods = makePeriods()
@@ -159,7 +163,9 @@ export async function getCrmOverview(): Promise<CrmOverview> {
       else point.saleProperties += 1
     }
   }
-  for (const deal of deals.data ?? []) {
+  const closedDeals = (deals.data ?? []).filter(deal => deal.status === 'closed')
+  const financeByDeal = indexDealFinance(financeActivities.data ?? [])
+  for (const deal of closedDeals) {
     for (const point of pointsFor(deal.created_at)) point.dealVolume += Number(deal.price || 0)
   }
   const typeCounts = new Map<string, number>()
@@ -202,7 +208,9 @@ export async function getCrmOverview(): Promise<CrmOverview> {
       months: periods.months,
       periods,
       propertyTypes: Array.from(typeCounts, ([name, value]) => ({ name, value })),
-      totalDealVolume: (deals.data ?? []).reduce((sum, deal) => sum + Number(deal.price || 0), 0),
+      totalDealVolume: closedDeals.reduce((sum, deal) => sum + Number(deal.price || 0), 0),
+      totalAgencyIncome: closedDeals.reduce((sum, deal) => sum + Number(financeByDeal.get(deal.id)?.agencyIncome || 0), 0),
+      totalAgentIncome: closedDeals.reduce((sum, deal) => sum + Number(financeByDeal.get(deal.id)?.agentIncome || 0), 0),
     },
   }
 }

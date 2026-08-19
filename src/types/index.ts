@@ -82,6 +82,8 @@ export interface Deal {
   buyerId?: string
   ownerId?: string
   price: number | undefined
+  agencyIncome?: number
+  agentIncome?: number
   status: 'pending' | 'active' | 'closed' | 'cancelled'
   notes?: string
   createdAt: string

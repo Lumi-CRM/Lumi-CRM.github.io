@@ -255,12 +255,14 @@ const Dashboard = ({ children }: DashboardProps) => {
           ))}
         </div>
 
-        <div className="lumi-kpi-grid grid grid-cols-2 gap-px lg:grid-cols-4">
+        <div className="lumi-kpi-grid grid grid-cols-2 gap-px lg:grid-cols-3">
           {[
             ['Новые контакты за месяц', currentContacts],
             ['Новые объекты за месяц', currentObjects],
             ['Активные сделки', data.activeDeals],
-            ['Объём сделок', `${data.analytics.totalDealVolume.toLocaleString('ru-RU')} ₽`],
+            ['Итоговая сумма закрытых сделок', `${data.analytics.totalDealVolume.toLocaleString('ru-RU')} ₽`],
+            ['Приход агентства', `${data.analytics.totalAgencyIncome.toLocaleString('ru-RU')} ₽`],
+            ['Доход агента', `${data.analytics.totalAgentIncome.toLocaleString('ru-RU')} ₽`],
           ].map(([label, value]) => (
             <div key={String(label)} className="px-5 py-4">
               <p className="lumi-muted text-xs uppercase tracking-wide">{label}</p>

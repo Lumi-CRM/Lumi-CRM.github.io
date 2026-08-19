@@ -3,12 +3,14 @@ import { CalendarRange, Download, Save, Target } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { printCurrentPage } from '../lib/print'
+import { indexDealFinance } from '../lib/dealFinance'
 
 const METRICS = [
   ['coldCalls', 'Холодные звонки', 'count'], ['meetings', 'Встречи', 'count'], ['posting', 'Расклейка', 'count'],
   ['distribution', 'Раскидка', 'count'], ['agencyContracts', 'Агентский договор', 'count'], ['secondaryDeals', 'Вторичка (сделки)', 'count'],
   ['top100', 'Топ 100 (рассылка)', 'count'], ['consultations', 'Консультация', 'count'], ['reservations', 'Брони', 'count'],
-  ['newBuildDeals', 'Первичка (сделки)', 'count'], ['secondaryRevenue', 'Приход (вторичка)', 'money'], ['newBuildRevenue', 'Приход (первичка)', 'money'],
+  ['newBuildDeals', 'Первичка (сделки)', 'count'], ['secondaryRevenue', 'Приход агентства (вторичка)', 'money'], ['newBuildRevenue', 'Приход агентства (первичка)', 'money'],
+  ['secondaryAgentIncome', 'Доход агента (вторичка)', 'money'], ['newBuildAgentIncome', 'Доход агента (первичка)', 'money'],
 ] as const
 
 type MetricKey = typeof METRICS[number][0]
@@ -24,8 +26,8 @@ const currentMonthRange = () => {
 }
 
 interface PlanRow { id: string; title: string; starts_on: string; ends_on: string; targets: Partial<TargetMap>; weekly_targets: Array<Partial<TargetMap>> }
-interface ActivityRow { type: string; occurred_at: string | null; metadata: Record<string, string> | null }
-interface DealRow { property_id: string; price: number | null; status: string; created_at: string }
+interface ActivityRow { type: string; occurred_at: string | null; external_key: string | null; metadata: Record<string, unknown> | null }
+interface DealRow { id: string; property_id: string; price: number | null; status: string; created_at: string }
 
 const MonthlyPlanPage = () => {
   const { user } = useAuth()
@@ -49,8 +51,8 @@ const MonthlyPlanPage = () => {
     setMessage('')
     const [planResult, activityResult, dealResult, detailsResult] = await Promise.all([
       supabase.from('monthly_plans').select('*').eq('user_id', user.id).order('starts_on', { ascending: false }).limit(1).maybeSingle(),
-      supabase.from('crm_activities').select('type,occurred_at,metadata').eq('user_id', user.id).is('deleted_at', null).eq('status', 'completed'),
-      supabase.from('deals').select('property_id,price,status,created_at').eq('user_id', user.id).is('deleted_at', null),
+      supabase.from('crm_activities').select('type,occurred_at,external_key,metadata').eq('user_id', user.id).is('deleted_at', null).eq('status', 'completed'),
+      supabase.from('deals').select('id,property_id,price,status,created_at').eq('user_id', user.id).is('deleted_at', null),
       supabase.from('property_details').select('property_id,new_building').eq('user_id', user.id).eq('new_building', true),
     ])
     if (planResult.data) {
@@ -71,6 +73,7 @@ const MonthlyPlanPage = () => {
   const dateInRange = (value: string | null, start: string, end: string) => Boolean(value && value.slice(0, 10) >= start && value.slice(0, 10) <= end)
   const actual = useMemo(() => {
     const result = emptyTargets()
+    const financeByDeal = indexDealFinance(activities)
     for (const activity of activities) {
       if (!dateInRange(activity.occurred_at, startsOn, endsOn)) continue
       if (activity.type === 'call' && activity.metadata?.call_type === 'cold') result.coldCalls += 1
@@ -82,7 +85,9 @@ const MonthlyPlanPage = () => {
       if (!dateInRange(deal.created_at, startsOn, endsOn) || deal.status !== 'closed') continue
       const primary = newBuildingIds.has(deal.property_id)
       result[primary ? 'newBuildDeals' : 'secondaryDeals'] += 1
-      result[primary ? 'newBuildRevenue' : 'secondaryRevenue'] += Number(deal.price || 0)
+      const finance = financeByDeal.get(deal.id)
+      result[primary ? 'newBuildRevenue' : 'secondaryRevenue'] += Number(finance?.agencyIncome || 0)
+      result[primary ? 'newBuildAgentIncome' : 'secondaryAgentIncome'] += Number(finance?.agentIncome || 0)
     }
     return result
   }, [activities, deals, endsOn, newBuildingIds, startsOn])
