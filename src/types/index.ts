@@ -116,6 +116,7 @@ export interface Task {
   isFavorite: boolean
   createdAt: string
   isCompleted: boolean
+  completedAt?: string
   category?: string
   project?: string
   smartCriteria?: { specific?: string; measurable?: string; achievable?: string; relevant?: string; timeBound?: string }
