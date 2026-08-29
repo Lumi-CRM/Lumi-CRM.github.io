@@ -300,7 +300,7 @@ begin
     'lumicrm-dispatch-reminders',
     '* * * * *',
     $cron$select net.http_post(
-      url := 'https://rgvbgwiojxoopzfzwgli.supabase.co/functions/v1/dispatch-reminders',
+      url := 'https://flwsglkkarikekkopdbu.supabase.co/functions/v1/dispatch-reminders',
       headers := '{"Content-Type":"application/json"}'::jsonb,
       body := '{}'::jsonb,
       timeout_milliseconds := 15000

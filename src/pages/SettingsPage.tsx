@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { Bell, BellRing, LayoutPanelLeft, Maximize2, Palette, Save, Settings, Smartphone } from 'lucide-react'
+import { Bell, BellRing, DatabaseBackup, LayoutPanelLeft, Maximize2, Palette, Save, Settings, Smartphone } from 'lucide-react'
 import { useAuth, type IconSize, type InterfaceDensity, type NavigationPosition } from '../context/AuthContext'
 import { themeOptions, useTheme } from '../context/ThemeContext'
 import { registerPushSubscription } from '../lib/pushNotifications'
 import AppDownloadPanel from '../components/AppDownloadPanel'
 import { Capacitor } from '@capacitor/core'
 import { requestExactAlarmPermission, requestNativeNotificationPermission, syncNativeReminders } from '../lib/nativeReminders'
+import { downloadWorkspaceBackup } from '../lib/workspaceBackup'
 
 const SettingsPage = () => {
   const { user, updatePreferences, updateNotificationPreferences, updateUser } = useAuth()
@@ -15,6 +16,8 @@ const SettingsPage = () => {
   const [savedMessage, setSavedMessage] = useState('')
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(() => Capacitor.isNativePlatform() ? 'default' : 'Notification' in window ? Notification.permission : 'unsupported')
   const [notificationMessage, setNotificationMessage] = useState('')
+  const [backupMessage, setBackupMessage] = useState('')
+  const [exportingBackup, setExportingBackup] = useState(false)
 
   if (!user) return null
 
@@ -60,6 +63,20 @@ const SettingsPage = () => {
     }
   }
 
+  const exportBackup = async () => {
+    setExportingBackup(true)
+    setBackupMessage('')
+    try {
+      const backup = await downloadWorkspaceBackup(user.id)
+      const rows = Object.values(backup.tables).reduce((total, table) => total + table.length, 0)
+      setBackupMessage(`Резервная копия сохранена: ${rows} записей${backup.warnings.length ? `. Предупреждений: ${backup.warnings.length}` : ''}.`)
+    } catch (backupError) {
+      setBackupMessage(backupError instanceof Error ? backupError.message : 'Не удалось создать резервную копию.')
+    } finally {
+      setExportingBackup(false)
+    }
+  }
+
   const Toggle = ({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) => (
     <button type="button" role="switch" aria-checked={value} aria-label={label} onClick={() => onChange(!value)} className={`relative inline-flex h-8 w-14 shrink-0 rounded-full border-2 border-transparent transition ${value ? 'lumi-accent-bg' : 'lumi-control'}`}>
       <span className={`pointer-events-none inline-block h-7 w-7 rounded-full bg-white shadow transition ${value ? 'translate-x-6' : 'translate-x-0'}`} />
@@ -88,6 +105,22 @@ const SettingsPage = () => {
       {savedMessage && <div className="rounded-xl border border-emerald-700/40 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-300">{savedMessage}</div>}
 
       <AppDownloadPanel />
+
+      <section className="lumi-panel rounded-2xl border p-6">
+        <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
+          <div className="flex items-start gap-3">
+            <DatabaseBackup className="lumi-accent-text mt-0.5 h-6 w-6" />
+            <div>
+              <h2 className="lumi-text text-xl font-semibold">Резервная копия офиса</h2>
+              <p className="lumi-muted mt-1 text-sm">Скачайте все записи и временные ссылки на загруженные файлы одним JSON-файлом.</p>
+            </div>
+          </div>
+          <button type="button" disabled={exportingBackup} onClick={() => void exportBackup()} className="lumi-gradient-button rounded-xl px-5 py-3 font-semibold disabled:opacity-60">
+            {exportingBackup ? 'Подготавливаем…' : 'Скачать копию'}
+          </button>
+        </div>
+        {backupMessage && <p className="lumi-muted mt-4 text-sm">{backupMessage}</p>}
+      </section>
 
       <section className="lumi-panel rounded-2xl border p-6">
         <div className="mb-5 flex items-center gap-3">

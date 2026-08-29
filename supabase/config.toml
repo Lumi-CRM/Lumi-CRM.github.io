@@ -1,5 +1,7 @@
-project_id = "rgvbgwiojxoopzfzwgli"
+project_id = "flwsglkkarikekkopdbu"
 
 [functions.dispatch-reminders]
 verify_jwt = false
 
+[functions.send-push]
+verify_jwt = false
