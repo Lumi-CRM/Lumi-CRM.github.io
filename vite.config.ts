@@ -9,10 +9,9 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        // Keep the bootstrap files stable. A cached HTML shell must always be
-        // able to start the newest deployment instead of pointing at a deleted
-        // content-hashed entry file.
-        entryFileNames: 'assets/[name].js',
+        // A content hash prevents installed PWAs from reusing an obsolete
+        // bootstrap bundle after a deployment.
+        entryFileNames: 'assets/[name]-[hash].js',
         assetFileNames: assetInfo => assetInfo.name === 'index.css'
           ? 'assets/index.css'
           : 'assets/[name]-[hash][extname]',
