@@ -57,6 +57,7 @@ const OfflineSyncStatus = () => {
       await flushOfflineQueue()
       await flushOfflineFiles(user.id)
       await warmOfflineWorkspace(user.id, forceWarm)
+      window.dispatchEvent(new CustomEvent('lumicrm:workspace-refreshed'))
       const pending = await refresh()
       if (navigator.onLine && cloudOnlineRef.current && pending === 0) {
         setStatus(previous => ({ ...previous, online: true, pending: 0, syncing: false, error: undefined }))

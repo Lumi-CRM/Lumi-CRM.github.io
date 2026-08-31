@@ -215,7 +215,7 @@ export const createSignedFileUrls = async (files: CrmFileRecord[], expiresIn = 6
     return result
   }
   const { data, error } = signedResult
-  if (error) throw error
+  if (error) return result
   for (let index = 0; index < remoteFiles.length; index += 1) {
     const item = data?.[index]
     if (!item?.signedUrl || !item.path) continue

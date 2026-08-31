@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Archive, Plus, Edit, Trash2, Search, Star, Eye, Building2 } from 'lucide-react'
+import { useCallback, useState, useEffect } from 'react'
+import { Archive, Plus, Edit, Trash2, Search, Star, Eye, Building2, LoaderCircle, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
@@ -17,39 +17,61 @@ const PropertiesPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingProperty, setEditingProperty] = useState<Property | null>(null)
   const [actionError, setActionError] = useState('')
+  const [loadError, setLoadError] = useState('')
+  const [loading, setLoading] = useState(true)
   const [workStream, setWorkStream] = useState<'active' | 'cold'>('active')
 
-  const fetchData = async () => {
-    if (!user) return
-    
-    const [propertiesResult, clientsResult] = await Promise.all([
-      supabase
-        .from('properties')
-        .select('*')
-        .eq('user_id', user.id)
-        .is('deleted_at', null)
-        .neq('status', 'archived')
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('clients')
-        .select('*')
-        .eq('user_id', user.id)
-        .is('deleted_at', null)
-        .order('created_at', { ascending: false })
-    ])
-
-    if (propertiesResult.data) {
-      const propertyRows = propertiesResult.data
+  const loadCoverImages = useCallback(async (propertyRows: Array<Record<string, any>>, userId: string) => {
+    try {
       const ids = propertyRows.map(property => property.id)
-      const { data: mediaRows } = ids.length
-        ? await supabase.from('crm_files').select('*').eq('user_id', user.id).eq('bucket', 'crm-images').in('property_id', ids).order('is_primary', { ascending: false }).order('created_at', { ascending: true })
-        : { data: [] }
+      if (!ids.length) return
+      const { data: mediaRows, error: mediaError } = await supabase
+        .from('crm_files')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('bucket', 'crm-images')
+        .in('property_id', ids)
+        .order('is_primary', { ascending: false })
+        .order('created_at', { ascending: true })
+      if (mediaError || !mediaRows?.length) return
+
       const covers = new Map<string, CrmFileRecord>()
-      for (const file of (mediaRows || []) as CrmFileRecord[]) {
+      for (const file of mediaRows as CrmFileRecord[]) {
         if (file.property_id && !covers.has(file.property_id)) covers.set(file.property_id, file)
       }
       const coverFiles = Array.from(covers.values())
       const urls = await createSignedFileUrls(coverFiles)
+      setProperties(current => current.map(property => {
+        const cover = covers.get(property.id)
+        return cover ? { ...property, coverUrl: urls.get(cover.storage_path) } : property
+      }))
+    } catch {
+      // Photos are optional: a storage error must never hide the property cards.
+    }
+  }, [])
+
+  const fetchData = useCallback(async () => {
+    if (!user) return
+    setLoading(true)
+    setLoadError('')
+    try {
+      const propertiesPromise = Promise.resolve(supabase
+          .from('properties')
+          .select('*')
+          .eq('user_id', user.id)
+          .is('deleted_at', null)
+          .neq('status', 'archived')
+          .order('created_at', { ascending: false }))
+      const clientsPromise = Promise.resolve(supabase
+          .from('clients')
+          .select('*')
+          .eq('user_id', user.id)
+          .is('deleted_at', null)
+          .order('created_at', { ascending: false }))
+
+      const propertiesResult = await propertiesPromise
+      if (propertiesResult.error) throw propertiesResult.error
+      const propertyRows = propertiesResult.data || []
       setProperties(propertyRows.map(p => ({
         ...p,
         userId: p.user_id,
@@ -65,30 +87,53 @@ const PropertiesPage = () => {
         updatedAt: p.updated_at,
         photos: [],
         documents: [],
-        notes: []
-        ,coverUrl: covers.get(p.id) ? urls.get(covers.get(p.id)!.storage_path) : undefined
+        notes: [],
       })))
-    }
-    if (clientsResult.data) {
-      setClients(clientsResult.data.map(c => ({
+
+      // Show the cards immediately. Loading signed photo URLs continues separately.
+      void loadCoverImages(propertyRows, user.id)
+      setLoading(false)
+
+      const clientsResult = await clientsPromise
+      if (clientsResult.data) setClients(clientsResult.data.map(c => ({
         ...c,
         userId: c.user_id,
         preferredDistricts: c.preferred_districts,
         mortgageStatus: c.mortgage_status,
         paymentMethod: c.payment_method,
         propertyType: c.property_type,
-        isFavorite: c.is_favorite
-        ,firstName: c.first_name
-        ,lastName: c.last_name
-        ,middleName: c.middle_name
-        ,roles: c.roles || []
+        isFavorite: c.is_favorite,
+        firstName: c.first_name,
+        lastName: c.last_name,
+        middleName: c.middle_name,
+        roles: c.roles || [],
       })))
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : 'Не удалось загрузить объекты из облака.')
+    } finally {
+      setLoading(false)
     }
-  }
+  }, [loadCoverImages, user])
 
   useEffect(() => {
-    fetchData()
-  }, [user])
+    void fetchData()
+    const refresh = () => void fetchData()
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refresh()
+    }
+    window.addEventListener('online', refresh)
+    window.addEventListener('lumicrm:data-synced', refresh)
+    window.addEventListener('lumicrm:remote-data-changed', refresh)
+    window.addEventListener('lumicrm:workspace-refreshed', refresh)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    return () => {
+      window.removeEventListener('online', refresh)
+      window.removeEventListener('lumicrm:data-synced', refresh)
+      window.removeEventListener('lumicrm:remote-data-changed', refresh)
+      window.removeEventListener('lumicrm:workspace-refreshed', refresh)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
+  }, [fetchData])
 
   const filteredProperties = properties.filter(prop =>
     (prop.workStream || 'active') === workStream
@@ -173,9 +218,11 @@ const PropertiesPage = () => {
         <button type="button" onClick={() => setWorkStream('cold')} className={`rounded-lg px-4 py-2.5 text-sm font-semibold transition ${workStream === 'cold' ? 'lumi-panel lumi-text shadow-sm' : 'lumi-muted'}`}>Холодная база · {properties.filter(item => item.workStream === 'cold').length}</button>
       </div>
 
-      {actionError && <div className="rounded-xl border border-red-800/50 bg-red-950/25 px-4 py-3 text-sm text-red-300">{actionError}</div>}
+      {(actionError || loadError) && <div className="flex flex-col items-start justify-between gap-3 rounded-xl border border-red-800/50 bg-red-950/25 px-4 py-3 text-sm text-red-300 sm:flex-row sm:items-center"><span>{actionError || `Не удалось загрузить объекты: ${loadError}`}</span>{loadError && <button type="button" onClick={() => void fetchData()} className="lumi-control inline-flex items-center gap-2 rounded-lg px-3 py-2 font-semibold"><RefreshCw className="h-4 w-4" />Повторить</button>}</div>}
 
-      {filteredProperties.length === 0 ? (
+      {loading && properties.length === 0 ? (
+        <div className="lumi-muted flex flex-col items-center justify-center gap-3 py-20"><LoaderCircle className="h-10 w-10 animate-spin" /><p>Загружаем объекты…</p></div>
+      ) : filteredProperties.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-gray-500 dark:text-gray-400">
           <Search className="w-16 h-16 mb-4 text-gray-300" />
           <p className="text-lg font-medium">Нет объектов</p>
