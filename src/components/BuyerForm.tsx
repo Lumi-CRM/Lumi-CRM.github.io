@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import Modal from './Modal'
 import type { Client } from '../types'
+import { getErrorMessage } from '../lib/errors'
 
 interface BuyerFormProps {
   isOpen: boolean
@@ -112,7 +113,7 @@ const BuyerForm = ({ isOpen, onClose, buyer, defaultPurpose = 'sale' }: BuyerFor
       if (error) throw error
       onClose()
     } catch (error) {
-      console.error('Client requirement save failed:', error); alert(`Не удалось сохранить заявку: ${error instanceof Error ? error.message : String(error)}`)
+      console.error('Client requirement save failed:', error); alert(`Не удалось сохранить заявку: ${getErrorMessage(error, 'проверьте подключение и повторите')}`)
     } finally { setSaving(false) }
   }
 

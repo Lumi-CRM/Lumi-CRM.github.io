@@ -51,7 +51,8 @@ export const preloadRoute = (path: string) => {
 }
 
 export const preloadCoreRoutes = () => {
-  const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection
-  if (connection?.saveData) return
-  ;['/properties', '/owners', '/buyers', '/calendar', '/tasks', '/calls'].forEach(preloadRoute)
+  const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection
+  if (connection?.saveData || ['slow-2g', '2g', '3g'].includes(connection?.effectiveType ?? '')) return
+  if (window.matchMedia('(max-width: 767px)').matches) return
+  ;['/properties', '/tasks'].forEach(preloadRoute)
 }

@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import Modal from './Modal'
 import type { Event, Client, Property } from '../types'
+import { getErrorMessage } from '../lib/errors'
 
 interface NewEventFormProps {
   isOpen: boolean
@@ -25,6 +26,8 @@ const NewEventForm = ({ isOpen, onClose, defaultType = 'meeting', editData = nul
   const [owners, setOwners] = useState<Client[]>([])
   const [buyers, setBuyers] = useState<Client[]>([])
   const [properties, setProperties] = useState<Property[]>([])
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
   const fetchData = async () => {
     if (!user) return
@@ -36,6 +39,9 @@ const NewEventForm = ({ isOpen, onClose, defaultType = 'meeting', editData = nul
       const mappedClients = clientsRes.data.map(c => ({
         ...c,
         userId: c.user_id,
+        firstName: c.first_name || '',
+        lastName: c.last_name || '',
+        middleName: c.middle_name || '',
         preferredDistricts: c.preferred_districts,
         mortgageStatus: c.mortgage_status,
         paymentMethod: c.payment_method,
@@ -109,19 +115,26 @@ const NewEventForm = ({ isOpen, onClose, defaultType = 'meeting', editData = nul
       related_property_id: relatedPropertyId || null
     }
 
-    if (editData) {
-      await supabase.from('events').update(eventData).eq('id', editData.id).eq('user_id', user.id)
-    } else {
-      await supabase.from('events').insert(eventData)
+    setSaving(true)
+    setSaveError('')
+    try {
+      const result = editData
+        ? await supabase.from('events').update(eventData).eq('id', editData.id).eq('user_id', user.id)
+        : await supabase.from('events').insert(eventData)
+      if (result.error) throw result.error
+      resetForm()
+      onClose()
+    } catch (error) {
+      setSaveError(`Не удалось сохранить событие: ${getErrorMessage(error, 'проверьте подключение и повторите')}`)
+    } finally {
+      setSaving(false)
     }
-
-    resetForm()
-    onClose()
   }
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={editData ? 'Редактировать событие' : 'Новое событие'}>
       <form onSubmit={handleSubmit} className="space-y-6">
+        {saveError && <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{saveError}</div>}
         {!editData && (
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-3">Тип события</label>
@@ -278,9 +291,10 @@ const NewEventForm = ({ isOpen, onClose, defaultType = 'meeting', editData = nul
           </button>
           <button
             type="submit"
-            className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-medium hover:opacity-90 transition-all"
+            disabled={saving}
+            className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-medium hover:opacity-90 transition-all disabled:opacity-60"
           >
-            {editData ? 'Сохранить изменения' : 'Сохранить'}
+            {saving ? 'Сохраняем…' : editData ? 'Сохранить изменения' : 'Сохранить'}
           </button>
         </div>
       </form>

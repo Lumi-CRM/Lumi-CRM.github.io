@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Check, Palette } from 'lucide-react'
 import { themeOptions, useTheme } from '../context/ThemeContext'
+import AnchoredPopover from './AnchoredPopover'
 
 interface ThemeSwitcherProps {
   align?: 'left' | 'right'
@@ -10,19 +11,12 @@ interface ThemeSwitcherProps {
 const ThemeSwitcher = ({ align = 'right', showLabel = false }: ThemeSwitcherProps) => {
   const { theme, setTheme } = useTheme()
   const [open, setOpen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener('pointerdown', handlePointerDown)
-    return () => document.removeEventListener('pointerdown', handlePointerDown)
-  }, [])
+  const rootRef = useRef<HTMLButtonElement>(null)
 
   return (
-    <div ref={rootRef} className="relative">
+    <div className="relative">
       <button
+        ref={rootRef}
         type="button"
         onClick={() => setOpen(value => !value)}
         aria-expanded={open}
@@ -34,11 +28,8 @@ const ThemeSwitcher = ({ align = 'right', showLabel = false }: ThemeSwitcherProp
         {showLabel && <span className="hidden sm:inline">{theme.name}</span>}
       </button>
 
-      {open && (
-        <div
-          role="menu"
-          className={`lumi-theme-menu absolute top-full z-50 mt-2 w-80 rounded-2xl p-2 ${align === 'right' ? 'right-0' : 'left-0'}`}
-        >
+      <AnchoredPopover open={open} anchorRef={rootRef} onClose={() => setOpen(false)} width={320} align={align} ariaLabel="Выбор темы" className="overflow-y-auto p-2">
+        <div role="menu">
           <div className="px-3 pb-2 pt-1">
             <p className="lumi-text text-sm font-semibold">Оформление офиса</p>
             <p className="lumi-muted mt-0.5 text-xs">Выбор сохраняется только на этом устройстве</p>
@@ -70,7 +61,7 @@ const ThemeSwitcher = ({ align = 'right', showLabel = false }: ThemeSwitcherProp
             ))}
           </div>
         </div>
-      )}
+      </AnchoredPopover>
     </div>
   )
 }

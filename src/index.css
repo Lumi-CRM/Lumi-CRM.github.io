@@ -361,6 +361,13 @@ body {
   color: var(--lumi-text);
 }
 
+/* Android renders native select menus outside the web view. Explicit system
+   colours keep every option readable even when a custom dark theme is active. */
+.lumi-shell select option {
+  background-color: var(--lumi-panel);
+  color: var(--lumi-text);
+}
+
 .lumi-shell .recharts-default-tooltip,
 .lumi-shell .recharts-tooltip-wrapper .recharts-default-tooltip {
   border-color: var(--lumi-border) !important;

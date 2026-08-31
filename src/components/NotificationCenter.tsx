@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { registerPushSubscription } from '../lib/pushNotifications'
+import AnchoredPopover from './AnchoredPopover'
 
 interface NotificationItem {
   id: string
@@ -17,7 +18,7 @@ interface NotificationItem {
 const NotificationCenter = () => {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const containerRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const [items, setItems] = useState<NotificationItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -58,15 +59,6 @@ const NotificationCenter = () => {
     if (open) void load()
   }, [load, open])
 
-  useEffect(() => {
-    if (!open) return
-    const close = (event: MouseEvent) => {
-      if (!containerRef.current?.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', close)
-    return () => document.removeEventListener('mousedown', close)
-  }, [open])
-
   const openItem = async (item: NotificationItem) => {
     if (!user) return
     if (!item.read_at) {
@@ -85,17 +77,17 @@ const NotificationCenter = () => {
 
   const unread = items.filter(item => !item.read_at).length
 
-  return <div ref={containerRef} className="relative">
-    <button type="button" aria-label="Уведомления" onClick={() => setOpen(value => !value)} className="lumi-nav-item relative rounded-xl p-2.5 transition">
+  return <div className="relative">
+    <button ref={containerRef} type="button" aria-label="Уведомления" aria-expanded={open} onClick={() => setOpen(value => !value)} className="lumi-nav-item relative rounded-xl p-2.5 transition">
       <Bell className="h-5 w-5" />
       {unread > 0 && <span className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[0.62rem] font-bold text-white">{unread > 9 ? '9+' : unread}</span>}
     </button>
-    {open && <div className="lumi-theme-menu absolute right-0 top-12 z-[90] w-[min(23rem,calc(100vw-2rem))] overflow-hidden rounded-2xl">
-      <div className="lumi-border flex items-center justify-between border-b px-4 py-3"><div><p className="lumi-text font-semibold">Уведомления</p><p className="lumi-muted text-xs">Последние события вашего офиса</p></div>{unread > 0 && <button type="button" onClick={() => void markAllRead()} title="Прочитать все" className="lumi-nav-item rounded-lg p-2"><CheckCheck className="h-4 w-4" /></button>}</div>
-      <div className="max-h-96 overflow-y-auto p-2">
-        {loading ? <div className="lumi-muted flex justify-center py-10"><LoaderCircle className="h-6 w-6 animate-spin" /></div> : items.length ? items.map(item => <button type="button" key={item.id} onClick={() => void openItem(item)} className={`w-full rounded-xl p-3 text-left transition hover:bg-[var(--lumi-control)] ${item.read_at ? '' : 'lumi-accent-soft'}`}><div className="flex gap-3"><BellRing className="mt-0.5 h-4 w-4 shrink-0" /><div><p className="lumi-text text-sm font-semibold">{item.title}</p>{item.body && <p className="lumi-muted mt-1 text-xs leading-5">{item.body}</p>}<p className="lumi-muted mt-2 text-[0.68rem]">{new Date(item.created_at).toLocaleString('ru-RU')}</p></div></div></button>) : <div className="lumi-muted py-10 text-center text-sm">Новых уведомлений нет</div>}
+    <AnchoredPopover open={open} anchorRef={containerRef} onClose={() => setOpen(false)} width={368} ariaLabel="Центр уведомлений" className="flex flex-col">
+      <div className="lumi-border flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3"><div className="min-w-0"><p className="lumi-text font-semibold">Уведомления</p><p className="lumi-muted truncate text-xs">Последние события вашего офиса</p></div>{unread > 0 && <button type="button" onClick={() => void markAllRead()} title="Прочитать все" className="lumi-nav-item shrink-0 rounded-lg p-2"><CheckCheck className="h-4 w-4" /></button>}</div>
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto p-2">
+        {loading ? <div className="lumi-muted flex justify-center py-10"><LoaderCircle className="h-6 w-6 animate-spin" /></div> : items.length ? items.map(item => <button type="button" key={item.id} onClick={() => void openItem(item)} className={`w-full min-w-0 rounded-xl p-3 text-left transition hover:bg-[var(--lumi-control)] ${item.read_at ? '' : 'lumi-accent-soft'}`}><div className="flex min-w-0 gap-3"><BellRing className="mt-0.5 h-4 w-4 shrink-0" /><div className="min-w-0"><p className="lumi-text break-words text-sm font-semibold">{item.title}</p>{item.body && <p className="lumi-muted mt-1 break-words text-xs leading-5">{item.body}</p>}<p className="lumi-muted mt-2 text-[0.68rem]">{new Date(item.created_at).toLocaleString('ru-RU')}</p></div></div></button>) : <div className="lumi-muted py-10 text-center text-sm">Новых уведомлений нет</div>}
       </div>
-    </div>}
+    </AnchoredPopover>
   </div>
 }
 

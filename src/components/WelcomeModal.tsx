@@ -46,9 +46,9 @@ const WelcomeModal = () => {
   }
 
   return (
-    <div className="lumi-shell fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/65 p-4 backdrop-blur-sm">
-      <div className="lumi-panel my-auto w-full max-w-3xl overflow-hidden rounded-3xl border shadow-2xl">
-        <div className="lumi-gradient-button relative p-6 text-center sm:p-8">
+    <div className="lumi-shell fixed inset-0 z-[100] flex items-center justify-center overflow-hidden bg-black/65 p-2 backdrop-blur-sm sm:p-4">
+      <div className="lumi-panel flex max-h-[calc(100dvh-1rem)] w-full max-w-3xl flex-col overflow-hidden rounded-3xl border shadow-2xl sm:max-h-[calc(100dvh-2rem)]">
+        <div className="lumi-gradient-button relative shrink-0 p-5 text-center sm:p-8">
           <button
             type="button"
             disabled={saving}
@@ -57,15 +57,15 @@ const WelcomeModal = () => {
           >
             Пропустить
           </button>
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-white/15">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white/15 sm:h-14 sm:w-14">
             <Icon className="h-7 w-7" />
           </div>
           <p className="mt-4 text-sm font-medium text-white/75">Шаг {step + 1} из {steps.length}</p>
-          <h1 className="mt-2 text-2xl font-bold sm:text-3xl">{current.title}</h1>
+          <h1 className="mt-2 pr-16 text-xl font-bold sm:pr-0 sm:text-3xl">{current.title}</h1>
           <p className="mx-auto mt-3 max-w-xl text-sm leading-6 text-white/80 sm:text-base">{current.text}</p>
         </div>
 
-        <div className="p-6 sm:p-8">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:p-8">
           <div className="grid gap-3 sm:grid-cols-3">
             {current.points.map(point => (
               <div key={point} className="lumi-panel-muted rounded-2xl border p-4">

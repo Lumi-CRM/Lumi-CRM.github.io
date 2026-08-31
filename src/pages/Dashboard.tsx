@@ -34,6 +34,7 @@ import InstallAppButton from '../components/InstallAppButton'
 import NotificationCenter from '../components/NotificationCenter'
 import OfflineSyncStatus from '../components/OfflineSyncStatus'
 import GlobalSearch from '../components/GlobalSearch'
+import ProfileMenu from '../components/ProfileMenu'
 
 const DashboardAnalytics = lazy(() => import('../components/DashboardAnalytics'))
 
@@ -78,6 +79,19 @@ const Dashboard = ({ children }: DashboardProps) => {
   const [completingId, setCompletingId] = useState<string | null>(null)
   const [dashboardMode, setDashboardMode] = useState<'sale' | 'rent' | 'mortgage'>('sale')
   const [syncRevision, setSyncRevision] = useState(0)
+  const [analyticsReady, setAnalyticsReady] = useState(false)
+
+  useEffect(() => {
+    if (!isHome) return
+    const idleWindow = window as Window & { requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number; cancelIdleCallback?: (handle: number) => void }
+    const show = () => setAnalyticsReady(true)
+    if (idleWindow.requestIdleCallback) {
+      const handle = idleWindow.requestIdleCallback(show, { timeout: 2200 })
+      return () => idleWindow.cancelIdleCallback?.(handle)
+    }
+    const handle = window.setTimeout(show, 1200)
+    return () => window.clearTimeout(handle)
+  }, [isHome])
 
   useEffect(() => {
     let timer = 0
@@ -271,7 +285,9 @@ const Dashboard = ({ children }: DashboardProps) => {
           ))}
         </div>
 
-        <Suspense fallback={<div className="lumi-muted p-8 text-center">Загружаем аналитику…</div>}><DashboardAnalytics analytics={data.analytics} config={chartConfig} /></Suspense>
+        {analyticsReady
+          ? <Suspense fallback={<div className="lumi-muted p-8 text-center">Загружаем аналитику…</div>}><DashboardAnalytics analytics={data.analytics} config={chartConfig} /></Suspense>
+          : <div className="lumi-muted p-8 text-center">Аналитика появится после загрузки основных данных…</div>}
       </section>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
@@ -410,15 +426,7 @@ const Dashboard = ({ children }: DashboardProps) => {
             <button type="button" onClick={() => void printCurrentPage()} className="lumi-control hidden rounded-xl p-2.5 sm:inline-flex" title="Сохранить страницу как PDF"><FileDown className="h-5 w-5" /></button>
             <ThemeSwitcher />
             <NotificationCenter />
-            <div className="flex items-center gap-3">
-              <div className="hidden text-right sm:block">
-                <p className="lumi-text text-sm font-semibold">{user?.displayName || 'Владелец офиса'}</p>
-                <p className="lumi-muted text-xs">{user?.email}</p>
-              </div>
-              <div className="lumi-gradient-button flex h-10 w-10 items-center justify-center rounded-full font-bold">
-                {user?.firstName?.[0] || 'L'}{user?.lastName?.[0] || ''}
-              </div>
-            </div>
+            <ProfileMenu />
           </div>
         </header>
 

@@ -33,6 +33,8 @@ export interface User {
   middleName?: string
   phone?: string
   position?: string
+  avatarPath?: string
+  avatarUrl?: string
   onboardingCompleted: boolean
   preferences: UiPreferences
   notificationPreferences: NotificationPreferences
@@ -49,6 +51,9 @@ interface AuthContextType {
   signUp: (email: string, password: string, firstName: string, lastName: string) => Promise<SignUpResult>
   resendConfirmation: (email: string) => Promise<boolean>
   updateUser: (data: Partial<User>) => Promise<void>
+  changePassword: (password: string) => Promise<boolean>
+  updateAvatar: (file: File) => Promise<boolean>
+  removeAvatar: () => Promise<boolean>
   updatePreferences: (data: Partial<UiPreferences>) => Promise<boolean>
   updateNotificationPreferences: (data: Partial<NotificationPreferences>) => Promise<boolean>
   completeOnboarding: () => Promise<boolean>
@@ -146,6 +151,7 @@ function mapSupabaseUser(source: SupabaseUser, profile?: Record<string, unknown>
     middleName: String(profile?.middle_name ?? metadata.middle_name ?? '') || undefined,
     phone: String(profile?.phone ?? metadata.phone ?? '') || undefined,
     position: String(profile?.position ?? metadata.position ?? 'Риелтор'),
+    avatarPath: String(metadata.avatar_path ?? '') || undefined,
     onboardingCompleted: Boolean(profile?.onboarding_completed),
     preferences: normalizePreferences(profile?.preferences),
     notificationPreferences: normalizeNotificationPreferences(profile?.notification_preferences),
@@ -172,21 +178,45 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setUser(null)
       return
     }
+    const cachedUser = readUserSnapshot(source.id)
+    const applyMappedUser = (mappedUser: User) => {
+      if (hasLocalOnboardingCompletion(source.id)) mappedUser.onboardingCompleted = true
+      saveUserSnapshot(mappedUser)
+      setUser(mappedUser)
+
+      if (!mappedUser.avatarPath || !navigator.onLine) return
+      void supabase.storage.from('crm-images').createSignedUrl(mappedUser.avatarPath, 7 * 24 * 60 * 60).then(({ data }) => {
+        if (!data?.signedUrl) return
+        setUser(previous => {
+          if (!previous || previous.id !== mappedUser.id || previous.avatarPath !== mappedUser.avatarPath) return previous
+          const next = { ...previous, avatarUrl: data.signedUrl }
+          saveUserSnapshot(next)
+          return next
+        })
+      }).catch(() => undefined)
+    }
+
+    if (cachedUser) {
+      applyMappedUser(cachedUser)
+      if (navigator.onLine) {
+        void supabase.from('profiles').select('*').eq('id', source.id).maybeSingle().then(({ data: profile, error: profileError }) => {
+          if (profileError) {
+            console.error('Failed to refresh LumiCRM profile:', profileError)
+            return
+          }
+          applyMappedUser(mapSupabaseUser(source, profile as Record<string, unknown> | null))
+        })
+      }
+      return
+    }
 
     const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('*')
       .eq('id', source.id)
       .maybeSingle()
-
     if (profileError) console.error('Failed to load LumiCRM profile:', profileError)
-    const cachedUser = readUserSnapshot(source.id)
-    const mappedUser = profileError && cachedUser
-      ? cachedUser
-      : mapSupabaseUser(source, profile as Record<string, unknown> | null)
-    if (hasLocalOnboardingCompletion(source.id)) mappedUser.onboardingCompleted = true
-    saveUserSnapshot(mappedUser)
-    setUser(mappedUser)
+    applyMappedUser(mapSupabaseUser(source, profile as Record<string, unknown> | null))
   }
 
   useEffect(() => {
@@ -324,6 +354,92 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     })
   }
 
+  const changePassword = async (password: string) => {
+    if (!user) return false
+    setError(null)
+    if (!navigator.onLine) {
+      setError('Для смены пароля нужно подключение к интернету.')
+      return false
+    }
+    const { error: passwordError } = await supabase.auth.updateUser({ password })
+    if (passwordError) {
+      setError(authErrorMessage(passwordError.message))
+      return false
+    }
+    return true
+  }
+
+  const updateAvatar = async (file: File) => {
+    if (!user) return false
+    setError(null)
+    if (!navigator.onLine) {
+      setError('Для загрузки аватара нужно подключение к интернету.')
+      return false
+    }
+    if (!file.type.startsWith('image/')) {
+      setError('Выберите изображение в формате JPG, PNG или WebP.')
+      return false
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setError('Размер аватара не должен превышать 5 МБ.')
+      return false
+    }
+
+    const extension = file.name.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg'
+    const storagePath = `${user.id}/profile/avatar-${crypto.randomUUID()}.${extension}`
+    const { error: uploadError } = await supabase.storage.from('crm-images').upload(storagePath, file, {
+      contentType: file.type,
+      upsert: false,
+    })
+    if (uploadError) {
+      setError('Не удалось загрузить аватар. Проверьте подключение и повторите.')
+      return false
+    }
+
+    const { error: metadataError } = await supabase.auth.updateUser({ data: { avatar_path: storagePath } })
+    if (metadataError) {
+      await supabase.storage.from('crm-images').remove([storagePath])
+      setError('Не удалось привязать аватар к профилю.')
+      return false
+    }
+
+    const { data: signed } = await supabase.storage.from('crm-images').createSignedUrl(storagePath, 7 * 24 * 60 * 60)
+    const previousPath = user.avatarPath
+    setUser(previous => {
+      if (!previous) return null
+      const next = { ...previous, avatarPath: storagePath, avatarUrl: signed?.signedUrl }
+      saveUserSnapshot(next)
+      return next
+    })
+    if (previousPath && previousPath !== storagePath) {
+      void supabase.storage.from('crm-images').remove([previousPath])
+    }
+    return true
+  }
+
+  const removeAvatar = async () => {
+    if (!user) return false
+    setError(null)
+    if (!navigator.onLine) {
+      setError('Для удаления аватара нужно подключение к интернету.')
+      return false
+    }
+    const previousPath = user.avatarPath
+    const { error: metadataError } = await supabase.auth.updateUser({ data: { avatar_path: null } })
+    if (metadataError) {
+      setError('Не удалось удалить аватар из профиля.')
+      return false
+    }
+    if (previousPath) void supabase.storage.from('crm-images').remove([previousPath])
+    setUser(previous => {
+      if (!previous) return null
+      const next = { ...previous, avatarPath: undefined, avatarUrl: undefined }
+      saveUserSnapshot(next)
+      return next
+    })
+    return true
+  }
+
   const updatePreferences = async (data: Partial<UiPreferences>) => {
     if (!user) return false
     const preferences = { ...user.preferences, ...data }
@@ -393,7 +509,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }
 
   const logout = async () => {
-    const { error: logoutError } = await supabase.auth.signOut()
+    const { error: logoutError } = await supabase.auth.signOut({ scope: 'local' })
     if (logoutError) setError('Не удалось завершить сессию')
     else {
       window.localStorage.removeItem(lastUserStorageKey)
@@ -416,6 +532,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       signUp,
       resendConfirmation,
       updateUser,
+      changePassword,
+      updateAvatar,
+      removeAvatar,
       updatePreferences,
       updateNotificationPreferences,
       completeOnboarding,

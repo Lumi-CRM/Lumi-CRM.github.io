@@ -1,5 +1,6 @@
-import { useState } from 'react'
-import { Bell, BellRing, DatabaseBackup, LayoutPanelLeft, Maximize2, Palette, Save, Settings, Smartphone } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { Bell, BellRing, Camera, DatabaseBackup, LayoutPanelLeft, LockKeyhole, LogOut, Maximize2, Palette, Save, Settings, Smartphone, Trash2, UserRound } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth, type IconSize, type InterfaceDensity, type NavigationPosition } from '../context/AuthContext'
 import { themeOptions, useTheme } from '../context/ThemeContext'
 import { registerPushSubscription } from '../lib/pushNotifications'
@@ -9,8 +10,10 @@ import { requestExactAlarmPermission, requestNativeNotificationPermission, syncN
 import { downloadWorkspaceBackup } from '../lib/workspaceBackup'
 
 const SettingsPage = () => {
-  const { user, updatePreferences, updateNotificationPreferences, updateUser } = useAuth()
+  const { user, updatePreferences, updateNotificationPreferences, updateUser, changePassword, updateAvatar, removeAvatar, logout, error: authError, clearError } = useAuth()
   const { theme, setTheme } = useTheme()
+  const navigate = useNavigate()
+  const avatarInputRef = useRef<HTMLInputElement>(null)
   const [profile, setProfile] = useState({ firstName: user?.firstName ?? '', lastName: user?.lastName ?? '', phone: user?.phone ?? '', position: user?.position ?? 'Риелтор' })
   const [savingProfile, setSavingProfile] = useState(false)
   const [savedMessage, setSavedMessage] = useState('')
@@ -18,6 +21,11 @@ const SettingsPage = () => {
   const [notificationMessage, setNotificationMessage] = useState('')
   const [backupMessage, setBackupMessage] = useState('')
   const [exportingBackup, setExportingBackup] = useState(false)
+  const [avatarSaving, setAvatarSaving] = useState(false)
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordSaving, setPasswordSaving] = useState(false)
+  const [accountMessage, setAccountMessage] = useState('')
 
   if (!user) return null
 
@@ -27,10 +35,57 @@ const SettingsPage = () => {
   }
 
   const saveProfile = async () => {
+    clearError()
     setSavingProfile(true)
     await updateUser(profile)
     setSavingProfile(false)
-    setSavedMessage('Профиль сохранён')
+    setSavedMessage('Данные профиля сохранены')
+  }
+
+  const selectAvatar = async (file?: File) => {
+    if (!file) return
+    clearError()
+    setAccountMessage('')
+    setAvatarSaving(true)
+    const saved = await updateAvatar(file)
+    setAvatarSaving(false)
+    if (saved) setAccountMessage('Аватар обновлён')
+    if (avatarInputRef.current) avatarInputRef.current.value = ''
+  }
+
+  const deleteAvatar = async () => {
+    clearError()
+    setAccountMessage('')
+    setAvatarSaving(true)
+    const removed = await removeAvatar()
+    setAvatarSaving(false)
+    if (removed) setAccountMessage('Аватар удалён')
+  }
+
+  const savePassword = async () => {
+    clearError()
+    setAccountMessage('')
+    if (newPassword.length < 8) {
+      setAccountMessage('Новый пароль должен содержать не менее 8 символов.')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setAccountMessage('Пароли не совпадают.')
+      return
+    }
+    setPasswordSaving(true)
+    const saved = await changePassword(newPassword)
+    setPasswordSaving(false)
+    if (saved) {
+      setNewPassword('')
+      setConfirmPassword('')
+      setAccountMessage('Пароль изменён')
+    }
+  }
+
+  const handleLogout = async () => {
+    await logout()
+    navigate('/login', { replace: true })
   }
 
   const requestNotifications = async () => {
@@ -104,6 +159,38 @@ const SettingsPage = () => {
 
       {savedMessage && <div className="rounded-xl border border-emerald-700/40 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-300">{savedMessage}</div>}
 
+      <section id="account" className="lumi-panel scroll-mt-28 rounded-2xl border p-4 sm:p-6">
+        <div className="mb-5 flex items-center gap-3">
+          <UserRound className="lumi-accent-text h-6 w-6" />
+          <div><h2 className="lumi-text text-xl font-semibold">Аккаунт и безопасность</h2><p className="lumi-muted text-sm">Аватар, личные данные, пароль и выход из LumiCRM.</p></div>
+        </div>
+
+        <div className="lumi-panel-muted flex flex-col gap-5 rounded-2xl border p-4 sm:flex-row sm:items-center">
+          {user.avatarUrl ? <img src={user.avatarUrl} alt="Аватар профиля" className="h-24 w-24 shrink-0 rounded-full object-cover ring-2 ring-[rgb(var(--lumi-accent-rgb)/0.35)]" /> : <div className="lumi-accent-soft flex h-24 w-24 shrink-0 items-center justify-center rounded-full"><UserRound className="h-11 w-11" /></div>}
+          <div className="min-w-0 flex-1"><p className="lumi-text truncate text-lg font-semibold">{user.displayName || 'Владелец офиса'}</p><p className="lumi-muted mt-1 truncate text-sm">{user.email}</p><p className="lumi-muted mt-2 text-xs">JPG, PNG или WebP, до 5 МБ.</p></div>
+          <div className="flex w-full flex-col gap-2 sm:w-auto">
+            <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={event => void selectAvatar(event.target.files?.[0])} />
+            <button type="button" disabled={avatarSaving} onClick={() => avatarInputRef.current?.click()} className="lumi-control inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold disabled:opacity-60"><Camera className="h-4 w-4" />{avatarSaving ? 'Сохраняем…' : user.avatarUrl ? 'Заменить фото' : 'Добавить фото'}</button>
+            {user.avatarPath && <button type="button" disabled={avatarSaving} onClick={() => void deleteAvatar()} className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-red-400 transition hover:bg-red-500/10 disabled:opacity-60"><Trash2 className="h-4 w-4" />Удалить фото</button>}
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          {([{ key: 'firstName', label: 'Имя' }, { key: 'lastName', label: 'Фамилия' }, { key: 'phone', label: 'Телефон' }, { key: 'position', label: 'Должность' }] as const).map(field => <div key={field.key}><label className="lumi-muted-strong mb-2 block text-sm font-medium">{field.label}</label><input value={profile[field.key]} onChange={event => setProfile(current => ({ ...current, [field.key]: event.target.value }))} className="lumi-control w-full rounded-xl px-4 py-3 outline-none" /></div>)}
+          <div className="sm:col-span-2"><label className="lumi-muted-strong mb-2 block text-sm font-medium">Email для входа</label><input value={user.email} readOnly className="lumi-control w-full cursor-not-allowed rounded-xl px-4 py-3 opacity-75 outline-none" /></div>
+        </div>
+        <button type="button" disabled={savingProfile} onClick={() => void saveProfile()} className="lumi-gradient-button mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold disabled:opacity-60 sm:w-auto"><Save className="h-4 w-4" />{savingProfile ? 'Сохраняем…' : 'Сохранить профиль'}</button>
+
+        <div className="lumi-border mt-6 border-t pt-6">
+          <div className="flex items-start gap-3"><LockKeyhole className="lumi-accent-text mt-0.5 h-5 w-5" /><div><h3 className="lumi-text font-semibold">Сменить пароль</h3><p className="lumi-muted mt-1 text-sm">После смены используйте новый пароль на всех устройствах.</p></div></div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2"><input type="password" autoComplete="new-password" value={newPassword} onChange={event => setNewPassword(event.target.value)} placeholder="Новый пароль" className="lumi-control w-full rounded-xl px-4 py-3 outline-none" /><input type="password" autoComplete="new-password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} placeholder="Повторите пароль" className="lumi-control w-full rounded-xl px-4 py-3 outline-none" /></div>
+          <button type="button" disabled={passwordSaving || !newPassword || !confirmPassword} onClick={() => void savePassword()} className="lumi-control mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold disabled:opacity-50 sm:w-auto"><LockKeyhole className="h-4 w-4" />{passwordSaving ? 'Меняем…' : 'Изменить пароль'}</button>
+        </div>
+
+        {(accountMessage || authError) && <p className={`mt-4 rounded-xl border px-4 py-3 text-sm ${authError ? 'border-red-700/40 bg-red-950/20 text-red-300' : 'border-emerald-700/40 bg-emerald-950/20 text-emerald-300'}`}>{authError || accountMessage}</p>}
+        <button type="button" onClick={() => void handleLogout()} className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-red-500/15 px-5 py-3 font-semibold text-red-400 sm:w-auto"><LogOut className="h-5 w-5" />Выйти из аккаунта</button>
+      </section>
+
       <AppDownloadPanel />
 
       <section className="lumi-panel rounded-2xl border p-6">
@@ -168,14 +255,6 @@ const SettingsPage = () => {
         {notificationMessage && <p className="lumi-muted mt-3 text-sm">{notificationMessage}</p>}
       </section>
 
-      <section className="lumi-panel rounded-2xl border p-6">
-        <h2 className="lumi-text text-xl font-semibold">Профиль</h2>
-        <p className="lumi-muted mt-1 text-sm">Эти данные отображаются в вашем офисе.</p>
-        <div className="mt-5 grid gap-4 sm:grid-cols-2">
-          {([{ key: 'firstName', label: 'Имя' }, { key: 'lastName', label: 'Фамилия' }, { key: 'phone', label: 'Телефон' }, { key: 'position', label: 'Должность' }] as const).map(field => <div key={field.key}><label className="lumi-muted-strong mb-2 block text-sm font-medium">{field.label}</label><input value={profile[field.key]} onChange={event => setProfile(current => ({ ...current, [field.key]: event.target.value }))} className="lumi-control w-full rounded-xl px-4 py-3 outline-none" /></div>)}
-        </div>
-        <button type="button" disabled={savingProfile} onClick={() => void saveProfile()} className="lumi-gradient-button mt-5 inline-flex items-center gap-2 rounded-xl px-5 py-3 font-semibold disabled:opacity-60"><Save className="h-4 w-4" />{savingProfile ? 'Сохраняем…' : 'Сохранить профиль'}</button>
-      </section>
     </div>
   )
 }

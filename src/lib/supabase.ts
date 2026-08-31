@@ -8,6 +8,24 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   global: { fetch: createOfflineFetch(supabaseUrl) },
 })
 
+export const checkCloudConnection = async () => {
+  if (!navigator.onLine) return false
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 4_000)
+  try {
+    const response = await fetch(`${supabaseUrl}/auth/v1/health`, {
+      cache: 'no-store',
+      headers: { apikey: supabaseAnonKey },
+      signal: controller.signal,
+    })
+    return response.ok
+  } catch {
+    return false
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
+
 configureOfflineSync(async () => {
   const { data } = await supabase.auth.getSession()
   return {
@@ -35,15 +53,45 @@ const WORKSPACE_TABLES = [
   'crm_import_rows',
 ] as const
 
+const CORE_WORKSPACE_TABLES = ['clients', 'properties', 'tasks', 'events', 'deals', 'notifications'] as const
+const BACKGROUND_WORKSPACE_TABLES = WORKSPACE_TABLES.filter(table => !CORE_WORKSPACE_TABLES.includes(table as typeof CORE_WORKSPACE_TABLES[number]))
+const warmPromises = new Map<string, Promise<void>>()
+
+const warmTables = async (userId: string, tables: readonly string[], limit: number) => {
+  for (let index = 0; index < tables.length; index += 2) {
+    const batch = tables.slice(index, index + 2)
+    await Promise.allSettled(batch.map(table => supabase.from(table).select('*').eq('user_id', userId).limit(limit)))
+  }
+}
+
 export const warmOfflineWorkspace = async (userId: string, force = false) => {
   if (!navigator.onLine) return
   const marker = `lumicrm-offline-warmed:${userId}`
   const lastWarm = Number(localStorage.getItem(marker) ?? 0)
   if (!force && Date.now() - lastWarm < 15 * 60_000) return
 
-  await Promise.allSettled([
-    supabase.from('profiles').select('*').eq('id', userId).maybeSingle(),
-    ...WORKSPACE_TABLES.map(table => supabase.from(table).select('*').eq('user_id', userId).limit(1500)),
-  ])
-  localStorage.setItem(marker, String(Date.now()))
+  const active = warmPromises.get(userId)
+  if (active) return active
+
+  const warming = (async () => {
+    await Promise.allSettled([
+      supabase.from('profiles').select('*').eq('id', userId).maybeSingle(),
+      ...CORE_WORKSPACE_TABLES.map(table => supabase.from(table).select('*').eq('user_id', userId).limit(750)),
+    ])
+    localStorage.setItem(marker, String(Date.now()))
+
+    const backgroundMarker = `${marker}:background`
+    const lastBackgroundWarm = Number(localStorage.getItem(backgroundMarker) ?? 0)
+    if (!force && Date.now() - lastBackgroundWarm < 60 * 60_000) return
+    const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection
+    const delay = connection?.saveData || ['slow-2g', '2g'].includes(connection?.effectiveType ?? '') ? 30_000 : 6_000
+    window.setTimeout(() => {
+      if (!navigator.onLine) return
+      void warmTables(userId, BACKGROUND_WORKSPACE_TABLES, 1500).then(() => {
+        localStorage.setItem(backgroundMarker, String(Date.now()))
+      })
+    }, delay)
+  })().finally(() => warmPromises.delete(userId))
+  warmPromises.set(userId, warming)
+  return warming
 }
