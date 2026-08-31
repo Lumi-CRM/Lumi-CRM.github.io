@@ -1,40 +1,40 @@
-import { supabase } from './supabase'
+import { checkCloudConnection, supabase } from './supabase'
+import {
+  WORKSPACE_BACKUP_TABLES,
+  parseWorkspaceBackup,
+  type BackupRow,
+  type WorkspaceBackup,
+  type WorkspaceBackupTable,
+  type WorkspaceRestoreProgress,
+  type WorkspaceRestoreResult,
+} from './workspaceBackupFormat'
 
-const USER_TABLES = [
+export { parseWorkspaceBackup, summarizeWorkspaceBackup } from './workspaceBackupFormat'
+export type { BackupRow, WorkspaceBackup, WorkspaceBackupSummary, WorkspaceBackupTable, WorkspaceRestoreProgress, WorkspaceRestoreResult } from './workspaceBackupFormat'
+
+const RESTORE_TABLE_ORDER: WorkspaceBackupTable[] = [
   'clients',
   'properties',
   'tasks',
   'events',
   'deals',
   'deal_participants',
-  'crm_activities',
-  'crm_files',
   'property_details',
   'client_requirements',
   'monthly_plans',
   'property_shares',
+  'crm_activities',
   'notifications',
-  'notification_jobs',
-  'push_subscriptions',
   'crm_imports',
   'crm_import_rows',
   'documents',
-] as const
+]
 
-type BackupRow = Record<string, unknown>
+// These tables are either rebuilt by database triggers or belong to a specific device.
+const SERVER_MANAGED_TABLES = new Set<WorkspaceBackupTable>(['notification_jobs', 'push_subscriptions'])
+const UPSERT_BATCH_SIZE = 200
 
-export type WorkspaceBackup = {
-  format: 'lumicrm-workspace-backup'
-  version: 1
-  exportedAt: string
-  sourceUserId: string
-  profile: BackupRow | null
-  tables: Record<string, BackupRow[]>
-  fileUrls: Record<string, string>
-  warnings: string[]
-}
-
-const loadUserTable = async (table: typeof USER_TABLES[number], userId: string) => {
+const loadUserTable = async (table: WorkspaceBackupTable, userId: string) => {
   const { data, error } = await supabase.from(table).select('*').eq('user_id', userId).limit(10_000)
   return { rows: (data ?? []) as BackupRow[], error: error?.message }
 }
@@ -70,7 +70,7 @@ export const createWorkspaceBackup = async (userId: string): Promise<WorkspaceBa
   const { data: profile, error: profileError } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
   if (profileError) warnings.push(`Профиль: ${profileError.message}`)
 
-  const tableResults = await Promise.all(USER_TABLES.map(async table => ({ table, ...(await loadUserTable(table, userId)) })))
+  const tableResults = await Promise.all(WORKSPACE_BACKUP_TABLES.map(async table => ({ table, ...(await loadUserTable(table, userId)) })))
   const tables: Record<string, BackupRow[]> = {}
   for (const result of tableResults) {
     tables[result.table] = result.rows
@@ -103,4 +103,148 @@ export const downloadWorkspaceBackup = async (userId: string) => {
   anchor.remove()
   URL.revokeObjectURL(url)
   return backup
+}
+
+const chunks = <T,>(items: T[], size: number) => {
+  const result: T[][] = []
+  for (let index = 0; index < items.length; index += size) result.push(items.slice(index, index + size))
+  return result
+}
+
+const withCurrentUser = (row: BackupRow, userId: string) => ({ ...row, user_id: userId })
+
+const remapStoragePath = (path: string, sourceUserId: string, userId: string) => {
+  const parts = path.split('/').filter(Boolean)
+  if (!parts.length) return `${userId}/restored-file`
+  if (parts[0] === sourceUserId || parts[0] === userId) parts[0] = userId
+  else parts.unshift(userId)
+  return parts.join('/')
+}
+
+const fetchBackupFile = async (url: string) => {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 20_000)
+  try {
+    const response = await fetch(url, { signal: controller.signal })
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    return await response.blob()
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
+
+const restoreFileRecords = async (
+  backup: WorkspaceBackup,
+  userId: string,
+  onProgress?: (progress: WorkspaceRestoreProgress) => void,
+) => {
+  const sourceRows = backup.tables.crm_files ?? []
+  const restoredRows: BackupRow[] = []
+  const warnings: string[] = []
+  let restoredFiles = 0
+  let skippedFiles = 0
+  let nextIndex = 0
+  let completedFiles = 0
+
+  const restoreOne = async (row: BackupRow, index: number) => {
+    const id = typeof row.id === 'string' ? row.id : ''
+    const bucket = row.bucket === 'crm-images' || row.bucket === 'crm-documents' ? row.bucket : ''
+    const sourcePath = typeof row.storage_path === 'string' ? row.storage_path : ''
+    if (!id || !bucket || !sourcePath) {
+      skippedFiles += 1
+      warnings.push(`Файл №${index + 1}: неполная служебная запись.`)
+      return
+    }
+
+    const storagePath = remapStoragePath(sourcePath, backup.sourceUserId, userId)
+    const restoredRow = { ...withCurrentUser(row, userId), storage_path: storagePath }
+    const signedUrl = backup.fileUrls[id]
+    if (!signedUrl) {
+      if (backup.sourceUserId === userId) restoredRows.push(restoredRow)
+      else {
+        skippedFiles += 1
+        warnings.push(`${String(row.name ?? `Файл №${index + 1}`)}: в копии нет ссылки на содержимое.`)
+      }
+      return
+    }
+
+    try {
+      const blob = await fetchBackupFile(signedUrl)
+      const { error } = await supabase.storage.from(bucket).upload(storagePath, blob, {
+        upsert: true,
+        contentType: typeof row.mime_type === 'string' && row.mime_type ? row.mime_type : blob.type || 'application/octet-stream',
+      })
+      if (error) throw error
+      restoredFiles += 1
+      restoredRows.push(restoredRow)
+    } catch (error) {
+      if (backup.sourceUserId === userId) restoredRows.push(restoredRow)
+      else skippedFiles += 1
+      const reason = error instanceof Error ? error.message : 'ссылка недоступна'
+      warnings.push(`${String(row.name ?? `Файл №${index + 1}`)}: не удалось перенести содержимое (${reason}).`)
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(3, sourceRows.length) }, async () => {
+    while (nextIndex < sourceRows.length) {
+      const index = nextIndex
+      nextIndex += 1
+      await restoreOne(sourceRows[index], index)
+      completedFiles += 1
+      onProgress?.({ phase: 'files', label: 'Переносим загруженные файлы', completed: completedFiles, total: sourceRows.length })
+    }
+  })
+  await Promise.all(workers)
+
+  for (const batch of chunks(restoredRows, UPSERT_BATCH_SIZE)) {
+    const { error } = await supabase.from('crm_files').upsert(batch)
+    if (error) throw new Error(`crm_files: ${error.message}`)
+  }
+
+  return { restoredRows: restoredRows.length, restoredFiles, skippedFiles, warnings }
+}
+
+export const restoreWorkspaceBackup = async (
+  input: WorkspaceBackup | string | unknown,
+  userId: string,
+  onProgress?: (progress: WorkspaceRestoreProgress) => void,
+): Promise<WorkspaceRestoreResult> => {
+  const backup = parseWorkspaceBackup(input)
+  const online = await checkCloudConnection()
+  if (!online) throw new Error('Для восстановления нужна связь с облаком. Подключитесь к интернету и повторите попытку.')
+
+  if (backup.profile) {
+    const { error } = await supabase.from('profiles').upsert({ ...backup.profile, id: userId })
+    if (error) throw new Error(`Профиль: ${error.message}`)
+  }
+
+  const skippedTables = [...SERVER_MANAGED_TABLES].filter(table => (backup.tables[table]?.length ?? 0) > 0)
+  const totalRecordTables = RESTORE_TABLE_ORDER.filter(table => (backup.tables[table]?.length ?? 0) > 0).length
+  let completedTables = 0
+  let importedRows = 0
+
+  for (const table of RESTORE_TABLE_ORDER) {
+    const sourceRows = backup.tables[table] ?? []
+    if (!sourceRows.length) continue
+    const preparedRows = sourceRows.map(row => withCurrentUser(row, userId))
+    for (const batch of chunks(preparedRows, UPSERT_BATCH_SIZE)) {
+      const { error } = await supabase.from(table).upsert(batch)
+      if (error) throw new Error(`${table}: ${error.message}`)
+      importedRows += batch.length
+    }
+    completedTables += 1
+    onProgress?.({ phase: 'records', label: `Восстанавливаем ${table}`, completed: completedTables, total: totalRecordTables })
+  }
+
+  const files = await restoreFileRecords(backup, userId, onProgress)
+  importedRows += files.restoredRows
+  onProgress?.({ phase: 'complete', label: 'Восстановление завершено', completed: 1, total: 1 })
+
+  return {
+    importedRows,
+    restoredFiles: files.restoredFiles,
+    skippedFiles: files.skippedFiles,
+    skippedTables,
+    warnings: [...backup.warnings, ...files.warnings],
+  }
 }

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Bell, BellRing, Camera, DatabaseBackup, LayoutPanelLeft, LockKeyhole, LogOut, Maximize2, Palette, Save, Settings, Smartphone, Trash2, UserRound } from 'lucide-react'
+import { Bell, BellRing, Camera, DatabaseBackup, FileJson, LayoutPanelLeft, LockKeyhole, LogOut, Maximize2, Palette, RefreshCw, Save, Settings, Smartphone, Trash2, Upload, UserRound, X } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth, type IconSize, type InterfaceDensity, type NavigationPosition } from '../context/AuthContext'
 import { themeOptions, useTheme } from '../context/ThemeContext'
@@ -7,13 +7,14 @@ import { registerPushSubscription } from '../lib/pushNotifications'
 import AppDownloadPanel from '../components/AppDownloadPanel'
 import { Capacitor } from '@capacitor/core'
 import { requestExactAlarmPermission, requestNativeNotificationPermission, syncNativeReminders } from '../lib/nativeReminders'
-import { downloadWorkspaceBackup } from '../lib/workspaceBackup'
+import { downloadWorkspaceBackup, parseWorkspaceBackup, restoreWorkspaceBackup, summarizeWorkspaceBackup, type WorkspaceBackup, type WorkspaceBackupSummary } from '../lib/workspaceBackup'
 
 const SettingsPage = () => {
   const { user, updatePreferences, updateNotificationPreferences, updateUser, changePassword, updateAvatar, removeAvatar, logout, error: authError, clearError } = useAuth()
   const { theme, setTheme } = useTheme()
   const navigate = useNavigate()
   const avatarInputRef = useRef<HTMLInputElement>(null)
+  const backupInputRef = useRef<HTMLInputElement>(null)
   const [profile, setProfile] = useState({ firstName: user?.firstName ?? '', lastName: user?.lastName ?? '', phone: user?.phone ?? '', position: user?.position ?? 'Риелтор' })
   const [savingProfile, setSavingProfile] = useState(false)
   const [savedMessage, setSavedMessage] = useState('')
@@ -21,6 +22,10 @@ const SettingsPage = () => {
   const [notificationMessage, setNotificationMessage] = useState('')
   const [backupMessage, setBackupMessage] = useState('')
   const [exportingBackup, setExportingBackup] = useState(false)
+  const [selectedBackup, setSelectedBackup] = useState<{ name: string; backup: WorkspaceBackup; summary: WorkspaceBackupSummary } | null>(null)
+  const [restoringBackup, setRestoringBackup] = useState(false)
+  const [restoreProgress, setRestoreProgress] = useState('')
+  const [restoreComplete, setRestoreComplete] = useState(false)
   const [avatarSaving, setAvatarSaving] = useState(false)
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -132,6 +137,51 @@ const SettingsPage = () => {
     }
   }
 
+  const selectBackup = async (file?: File) => {
+    if (!file) return
+    setBackupMessage('')
+    setRestoreProgress('')
+    setRestoreComplete(false)
+    try {
+      if (file.size > 50 * 1024 * 1024) throw new Error('Файл резервной копии больше 50 МБ. Выберите исходный JSON-файл LumiCRM.')
+      const backup = parseWorkspaceBackup(await file.text())
+      setSelectedBackup({ name: file.name, backup, summary: summarizeWorkspaceBackup(backup) })
+    } catch (backupError) {
+      setSelectedBackup(null)
+      setBackupMessage(backupError instanceof Error ? backupError.message : 'Не удалось прочитать резервную копию.')
+    } finally {
+      if (backupInputRef.current) backupInputRef.current.value = ''
+    }
+  }
+
+  const restoreBackup = async () => {
+    if (!selectedBackup) return
+    setRestoringBackup(true)
+    setBackupMessage('')
+    setRestoreComplete(false)
+    try {
+      const result = await restoreWorkspaceBackup(selectedBackup.backup, user.id, progress => {
+        const counter = progress.total > 1 ? ` (${Math.min(progress.completed, progress.total)} из ${progress.total})` : ''
+        setRestoreProgress(`${progress.label}${counter}`)
+      })
+      const details = [
+        `${result.importedRows} записей`,
+        result.restoredFiles ? `${result.restoredFiles} файлов` : '',
+        result.skippedFiles ? `не перенесено файлов: ${result.skippedFiles}` : '',
+        result.skippedTables.length ? `служебные разделы пересозданы: ${result.skippedTables.length}` : '',
+        result.warnings.length ? `предупреждений: ${result.warnings.length}` : '',
+      ].filter(Boolean).join(' · ')
+      setBackupMessage(`Копия восстановлена: ${details}.`)
+      setRestoreComplete(true)
+      setSelectedBackup(null)
+    } catch (backupError) {
+      setBackupMessage(backupError instanceof Error ? backupError.message : 'Не удалось восстановить резервную копию.')
+    } finally {
+      setRestoringBackup(false)
+      setRestoreProgress('')
+    }
+  }
+
   const Toggle = ({ label, value, onChange }: { label: string; value: boolean; onChange: (value: boolean) => void }) => (
     <button type="button" role="switch" aria-checked={value} aria-label={label} onClick={() => onChange(!value)} className={`relative inline-flex h-8 w-14 shrink-0 rounded-full border-2 border-transparent transition ${value ? 'lumi-accent-bg' : 'lumi-control'}`}>
       <span className={`pointer-events-none inline-block h-7 w-7 rounded-full bg-white shadow transition ${value ? 'translate-x-6' : 'translate-x-0'}`} />
@@ -199,14 +249,42 @@ const SettingsPage = () => {
             <DatabaseBackup className="lumi-accent-text mt-0.5 h-6 w-6" />
             <div>
               <h2 className="lumi-text text-xl font-semibold">Резервная копия офиса</h2>
-              <p className="lumi-muted mt-1 text-sm">Скачайте все записи и временные ссылки на загруженные файлы одним JSON-файлом.</p>
+              <p className="lumi-muted mt-1 text-sm">Скачайте данные офиса или восстановите их из JSON-копии LumiCRM.</p>
             </div>
           </div>
-          <button type="button" disabled={exportingBackup} onClick={() => void exportBackup()} className="lumi-gradient-button rounded-xl px-5 py-3 font-semibold disabled:opacity-60">
-            {exportingBackup ? 'Подготавливаем…' : 'Скачать копию'}
-          </button>
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+            <button type="button" disabled={exportingBackup || restoringBackup} onClick={() => void exportBackup()} className="lumi-gradient-button inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold disabled:opacity-60">
+              <DatabaseBackup className="h-4 w-4" />{exportingBackup ? 'Подготавливаем…' : 'Скачать копию'}
+            </button>
+            <input ref={backupInputRef} type="file" accept="application/json,.json" className="hidden" onChange={event => void selectBackup(event.target.files?.[0])} />
+            <button type="button" disabled={restoringBackup} onClick={() => backupInputRef.current?.click()} className="lumi-control inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold disabled:opacity-60">
+              <Upload className="h-4 w-4" />Загрузить копию
+            </button>
+          </div>
         </div>
-        {backupMessage && <p className="lumi-muted mt-4 text-sm">{backupMessage}</p>}
+        {selectedBackup && (
+          <div className="lumi-panel-muted mt-5 rounded-2xl border p-4">
+            <div className="flex items-start gap-3">
+              <FileJson className="lumi-accent-text mt-0.5 h-6 w-6 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="lumi-text break-all font-semibold">{selectedBackup.name}</p>
+                <p className="lumi-muted mt-1 text-sm">Создана {new Date(selectedBackup.summary.exportedAt).toLocaleString('ru-RU')} · {selectedBackup.summary.totalRows} записей · {selectedBackup.summary.fileRecords} файлов</p>
+              </div>
+              <button type="button" disabled={restoringBackup} onClick={() => setSelectedBackup(null)} aria-label="Отменить выбор копии" className="lumi-control rounded-lg p-2 disabled:opacity-50"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+              Записи из копии будут добавлены или обновлены. Данные, созданные после этой копии, не удаляются. Служебная очередь уведомлений пересоздаётся автоматически.
+            </div>
+            {selectedBackup.summary.sourceUserId !== user.id && <p className="lumi-muted mt-3 text-sm">Копия создана в другом аккаунте. Все импортированные записи будут безопасно привязаны к текущему аккаунту.</p>}
+            {selectedBackup.summary.warnings.length > 0 && <p className="mt-3 text-sm text-amber-300">В исходной копии предупреждений: {selectedBackup.summary.warnings.length}.</p>}
+            <button type="button" disabled={restoringBackup} onClick={() => void restoreBackup()} className="lumi-gradient-button mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold disabled:opacity-60 sm:w-auto">
+              <RefreshCw className={`h-4 w-4 ${restoringBackup ? 'animate-spin' : ''}`} />{restoringBackup ? restoreProgress || 'Восстанавливаем…' : 'Восстановить данные'}
+            </button>
+          </div>
+        )}
+        {backupMessage && <p className={`mt-4 rounded-xl border px-4 py-3 text-sm ${restoreComplete ? 'border-emerald-700/40 bg-emerald-950/20 text-emerald-300' : 'lumi-border lumi-muted'}`}>{backupMessage}</p>}
+        {restoreComplete && <button type="button" onClick={() => window.location.reload()} className="lumi-control mt-3 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold"><RefreshCw className="h-4 w-4" />Обновить данные на экране</button>}
+        <p className="lumi-muted mt-4 text-xs leading-5">JSON-копия хранит записи и временные ссылки на файлы. Файлы переносятся, пока эти ссылки доступны; поэтому для полного переноса загружайте свежую копию в течение 24 часов.</p>
       </section>
 
       <section className="lumi-panel rounded-2xl border p-6">
