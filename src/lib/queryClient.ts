@@ -11,6 +11,9 @@ export const crmQueryKeys = {
   deals: (userId: string) => ['crm', userId, 'deals'] as const,
   monthlyPlan: (userId: string) => ['crm', userId, 'monthly-plan'] as const,
   planActuals: (userId: string) => ['crm', userId, 'plan-actuals'] as const,
+  archive: (userId: string) => ['crm', userId, 'archive'] as const,
+  favorites: (userId: string) => ['crm', userId, 'favorites'] as const,
+  trash: (userId: string) => ['crm', userId, 'trash'] as const,
 }
 
 export const queryClient = new QueryClient({

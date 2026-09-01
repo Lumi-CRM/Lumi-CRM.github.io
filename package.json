@@ -13,7 +13,7 @@
     "build:android": "npm run build && cap sync android",
     "build:desktop:web": "tsc -b && vite build --base=./ --outDir=dist-desktop",
     "build:desktop": "npm run build:desktop:web && electron-builder --win nsis --publish never",
-    "test": "node --test src/lib/authGuards.test.ts src/lib/authCallback.test.ts src/lib/offlineTransport.test.ts src/lib/dealFinance.test.ts src/lib/dealParticipants.test.ts src/lib/dealMapping.test.ts src/lib/planProgress.test.ts src/lib/monthlyPlanMapping.test.ts src/lib/workspaceBackup.test.ts src/lib/navigation.test.ts src/lib/contacts.test.ts src/lib/propertyMapping.test.ts src/lib/taskMapping.test.ts src/lib/eventMapping.test.ts src/lib/callActivityMapping.test.ts src/lib/syncDiagnostics.test.ts",
+    "test": "node --test src/lib/authGuards.test.ts src/lib/authCallback.test.ts src/lib/offlineTransport.test.ts src/lib/dealFinance.test.ts src/lib/dealParticipants.test.ts src/lib/dealMapping.test.ts src/lib/planProgress.test.ts src/lib/monthlyPlanMapping.test.ts src/lib/recordCollectionMapping.test.ts src/lib/workspaceBackup.test.ts src/lib/navigation.test.ts src/lib/contacts.test.ts src/lib/propertyMapping.test.ts src/lib/taskMapping.test.ts src/lib/eventMapping.test.ts src/lib/callActivityMapping.test.ts src/lib/syncDiagnostics.test.ts",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "import:sheets": "node scripts/import-google-sheet.mjs",
