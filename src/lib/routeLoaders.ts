@@ -5,6 +5,8 @@ export const routeLoaders = {
   dashboard: () => import('../pages/Dashboard'),
   properties: () => import('../pages/PropertiesPage'),
   propertyDetail: () => import('../pages/PropertyDetailPage'),
+  contacts: () => import('../pages/ContactsHubPage'),
+  work: () => import('../pages/WorkHubPage'),
   owners: () => import('../pages/OwnersPage'),
   buyers: () => import('../pages/BuyersPage'),
   calendar: () => import('../pages/CalendarPage'),
@@ -22,6 +24,8 @@ export const routeLoaders = {
 } as const
 
 const routeByPath: Record<string, () => Promise<unknown>> = {
+  '/contacts': routeLoaders.contacts,
+  '/work': routeLoaders.work,
   '/properties': routeLoaders.properties,
   '/owners': routeLoaders.owners,
   '/landlords': routeLoaders.owners,
@@ -54,5 +58,5 @@ export const preloadCoreRoutes = () => {
   const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection
   if (connection?.saveData || ['slow-2g', '2g', '3g'].includes(connection?.effectiveType ?? '')) return
   if (window.matchMedia('(max-width: 767px)').matches) return
-  ;['/properties', '/tasks'].forEach(preloadRoute)
+  ;['/properties', '/contacts', '/work'].forEach(preloadRoute)
 }

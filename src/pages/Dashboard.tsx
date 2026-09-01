@@ -4,7 +4,6 @@ import {
   Archive,
   BriefcaseBusiness,
   Building2,
-  Calendar,
   CalendarDays,
   CheckCircle2,
   CheckSquare,
@@ -27,6 +26,7 @@ import { completeOverviewItem } from '../lib/crm'
 import { syncNativeReminders } from '../lib/nativeReminders'
 import { printCurrentPage } from '../lib/print'
 import { preloadCoreRoutes, preloadRoute } from '../lib/routeLoaders'
+import { desktopNavigationGroups, isNavigationItemActive, mobileNavigation } from '../lib/navigation'
 import { useCrmOverview } from '../hooks/useCrmOverview'
 import logoLight from '../assets/logo-light.png'
 import ThemeSwitcher from '../components/ThemeSwitcher'
@@ -42,25 +42,19 @@ interface DashboardProps {
   children?: ReactNode
 }
 
-const menuItems = [
-  { id: '/', icon: Home, label: 'Главная' },
-  { id: '/properties', icon: Building2, label: 'Объекты' },
-  { id: '/owners', icon: Users, label: 'Собственники' },
-  { id: '/landlords', icon: Building2, label: 'Арендодатели' },
-  { id: '/buyers', icon: Heart, label: 'Покупатели' },
-  { id: '/tenants', icon: Users, label: 'Арендаторы' },
-  { id: '/calendar', icon: Calendar, label: 'Календарь' },
-  { id: '/calls', icon: Phone, label: 'Звонки' },
-  { id: '/plan', icon: CalendarDays, label: 'План' },
-  { id: '/tasks', icon: CheckSquare, label: 'Задачи' },
-  { id: '/deals', icon: BriefcaseBusiness, label: 'Сделки' },
-  { id: '/documents', icon: FileText, label: 'Документы' },
-  { id: '/gallery', icon: Image, label: 'Галерея' },
-  { id: '/favorites', icon: Star, label: 'Избранное' },
-  { id: '/archive', icon: Archive, label: 'Архив' },
-  { id: '/trash', icon: Trash2, label: 'Корзина' },
-  { id: '/settings', icon: Settings, label: 'Настройки' },
-]
+const navigationIcons: Record<string, typeof Home> = {
+  '/': Home,
+  '/work': CheckSquare,
+  '/deals': BriefcaseBusiness,
+  '/contacts': Users,
+  '/properties': Building2,
+  '/documents': FileText,
+  '/gallery': Image,
+  '/favorites': Star,
+  '/archive': Archive,
+  '/trash': Trash2,
+  '/settings': Settings,
+}
 
 const formatDate = (value?: string) => {
   if (!value) return 'Без срока'
@@ -173,10 +167,6 @@ const Dashboard = ({ children }: DashboardProps) => {
       setCompletingId(null)
     }
   }
-
-  const isActive = (path: string) => path === '/'
-    ? location.pathname === '/'
-    : location.pathname.startsWith(path)
 
   const stats = [
     { label: 'Собственники', value: data.owners, icon: Users, color: 'from-blue-500 to-cyan-500' },
@@ -382,28 +372,31 @@ const Dashboard = ({ children }: DashboardProps) => {
           </Link>
           <p className="lumi-muted mt-3 text-xs uppercase tracking-[0.18em]">Ваш личный облачный офис</p>
         </div>
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-4">
-          {menuItems.map(item => {
-            const Icon = item.icon
-            const active = isActive(item.id)
-            return (
-              <button
-                type="button"
-                key={item.id}
-                onClick={() => navigate(item.id)}
-                onPointerEnter={() => preloadRoute(item.id)}
-                onFocus={() => preloadRoute(item.id)}
-                className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-left text-sm transition ${
-                  active
-                    ? 'lumi-nav-item-active font-medium'
-                    : 'lumi-nav-item'
-                }`}
-              >
-                <Icon className="shrink-0" style={{ width: 'var(--lumi-nav-icon-size)', height: 'var(--lumi-nav-icon-size)' }} />
-                <span>{item.label}</span>
-              </button>
-            )
-          })}
+        <nav className="flex-1 space-y-5 overflow-y-auto px-3 pb-4">
+          {desktopNavigationGroups.map(group => (
+            <section key={group.id}>
+              <p className="lumi-muted mb-1 px-4 text-[0.65rem] font-semibold uppercase tracking-[0.16em]">{group.label}</p>
+              <div className="space-y-1">
+                {group.items.map(item => {
+                  const Icon = navigationIcons[item.id]
+                  const active = isNavigationItemActive(location.pathname, item)
+                  return (
+                    <button
+                      type="button"
+                      key={item.id}
+                      onClick={() => navigate(item.id)}
+                      onPointerEnter={() => preloadRoute(item.id)}
+                      onFocus={() => preloadRoute(item.id)}
+                      className={`flex w-full items-center gap-3 rounded-xl px-4 py-2.5 text-left text-sm transition ${active ? 'lumi-nav-item-active font-medium' : 'lumi-nav-item'}`}
+                    >
+                      <Icon className="shrink-0" style={{ width: 'var(--lumi-nav-icon-size)', height: 'var(--lumi-nav-icon-size)' }} />
+                      <span>{item.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </section>
+          ))}
         </nav>
         <div className="lumi-border border-t p-4">
           <button
@@ -424,7 +417,7 @@ const Dashboard = ({ children }: DashboardProps) => {
             <OfflineSyncStatus />
             <InstallAppButton compact />
             <button type="button" onClick={() => void printCurrentPage()} className="lumi-control hidden rounded-xl p-2.5 sm:inline-flex" title="Сохранить страницу как PDF"><FileDown className="h-5 w-5" /></button>
-            <ThemeSwitcher />
+            <span className="hidden sm:block"><ThemeSwitcher /></span>
             <NotificationCenter />
             <ProfileMenu />
           </div>
@@ -435,14 +428,14 @@ const Dashboard = ({ children }: DashboardProps) => {
         </div>
       </main>
 
-      <nav className="lumi-header lumi-border fixed inset-x-0 bottom-0 z-[70] flex gap-1 overflow-x-auto border-t p-2 md:hidden">
-        {menuItems.map(item => {
-          const Icon = item.icon
-          const active = isActive(item.id)
+      <nav className="lumi-header lumi-border fixed inset-x-0 bottom-0 z-[70] grid grid-cols-5 gap-1 border-t p-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] md:hidden">
+        {mobileNavigation.map(item => {
+          const Icon = navigationIcons[item.id]
+          const active = isNavigationItemActive(location.pathname, item)
           return (
-            <button type="button" key={item.id} onPointerEnter={() => preloadRoute(item.id)} onFocus={() => preloadRoute(item.id)} onClick={() => navigate(item.id)} className={`flex min-w-[4.6rem] shrink-0 flex-col items-center gap-1 rounded-xl px-2 py-2 text-[0.68rem] ${active ? 'lumi-nav-item-active' : 'lumi-nav-item'}`}>
+            <button type="button" key={item.id} onPointerEnter={() => preloadRoute(item.id)} onFocus={() => preloadRoute(item.id)} onClick={() => navigate(item.id)} className={`flex min-w-0 flex-col items-center gap-1 rounded-xl px-1 py-2 text-[0.64rem] ${active ? 'lumi-nav-item-active' : 'lumi-nav-item'}`}>
               <Icon style={{ width: 'var(--lumi-nav-icon-size)', height: 'var(--lumi-nav-icon-size)' }} />
-              <span>{item.label}</span>
+              <span className="w-full truncate text-center">{item.label}</span>
             </button>
           )
         })}

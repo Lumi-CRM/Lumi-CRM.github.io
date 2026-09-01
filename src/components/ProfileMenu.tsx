@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { LogOut, Settings, UserRound } from 'lucide-react'
+import { Archive, FileText, Image, LogOut, Settings, Star, Trash2, UserRound } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import AnchoredPopover from './AnchoredPopover'
@@ -17,6 +17,11 @@ const ProfileMenu = () => {
     setOpen(false)
     navigate('/settings#account')
     window.setTimeout(() => document.getElementById('account')?.scrollIntoView({ behavior: 'smooth' }), 100)
+  }
+
+  const openSection = (path: string) => {
+    setOpen(false)
+    navigate(path)
   }
 
   const handleLogout = async () => {
@@ -55,7 +60,19 @@ const ProfileMenu = () => {
             <div className="min-w-0"><p className="lumi-text truncate font-semibold">{user.displayName || 'Владелец офиса'}</p><p className="lumi-muted truncate text-xs">{user.email}</p></div>
           </div>
         </div>
-        <button type="button" onClick={openAccount} className="lumi-nav-item mt-2 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium"><Settings className="h-5 w-5" />Профиль и безопасность</button>
+        <div className="mt-2 grid grid-cols-2 gap-1 sm:block">
+          {[
+            { path: '/documents', label: 'Документы', icon: FileText },
+            { path: '/gallery', label: 'Галерея', icon: Image },
+            { path: '/favorites', label: 'Избранное', icon: Star },
+            { path: '/archive', label: 'Архив', icon: Archive },
+            { path: '/trash', label: 'Корзина', icon: Trash2 },
+          ].map(item => {
+            const Icon = item.icon
+            return <button key={item.path} type="button" onClick={() => openSection(item.path)} className="lumi-nav-item flex w-full items-center gap-2 rounded-xl px-3 py-3 text-left text-sm font-medium sm:gap-3"><Icon className="h-5 w-5 shrink-0" />{item.label}</button>
+          })}
+        </div>
+        <button type="button" onClick={openAccount} className="lumi-nav-item mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium"><Settings className="h-5 w-5" />Профиль и настройки</button>
         <button type="button" disabled={loggingOut} onClick={() => void handleLogout()} className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium text-red-400 transition hover:bg-red-500/10 disabled:opacity-60"><LogOut className="h-5 w-5" />{loggingOut ? 'Выходим…' : 'Выйти из аккаунта'}</button>
       </AnchoredPopover>
     </div>

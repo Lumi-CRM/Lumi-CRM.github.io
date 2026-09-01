@@ -13,6 +13,8 @@ const SetPasswordPage = lazy(routeLoaders.setPassword)
 const Dashboard = lazy(routeLoaders.dashboard)
 const PropertiesPage = lazy(routeLoaders.properties)
 const PropertyDetailPage = lazy(routeLoaders.propertyDetail)
+const ContactsHubPage = lazy(routeLoaders.contacts)
+const WorkHubPage = lazy(routeLoaders.work)
 const OwnersPage = lazy(routeLoaders.owners)
 const BuyersPage = lazy(routeLoaders.buyers)
 const CalendarPage = lazy(routeLoaders.calendar)
@@ -63,6 +65,8 @@ function App() {
                       <Route path="/" element={null} />
                       <Route path="/properties" element={<PropertiesPage />} />
                       <Route path="/properties/:id" element={<PropertyDetailPage />} />
+                      <Route path="/contacts" element={<ContactsHubPage />} />
+                      <Route path="/work" element={<WorkHubPage />} />
                       <Route path="/owners" element={<OwnersPage />} />
                       <Route path="/landlords" element={<OwnersPage mode="rent" />} />
                       <Route path="/buyers" element={<BuyersPage />} />
