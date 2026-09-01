@@ -27,6 +27,7 @@ export const useCallActivities = (userId?: string) => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey }),
       userId ? queryClient.invalidateQueries({ queryKey: crmQueryKeys.overview(userId) }) : Promise.resolve(),
+      userId ? queryClient.invalidateQueries({ queryKey: crmQueryKeys.planActuals(userId) }) : Promise.resolve(),
     ])
   }
 

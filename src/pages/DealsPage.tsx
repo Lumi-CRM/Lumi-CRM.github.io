@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { BriefcaseBusiness, Building2, Edit, FileText, Plus, Trash2, Users } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useAuth } from '../context/AuthContext'
-import { supabase } from '../lib/supabase'
-import { dealFinanceKey, formatMoney, indexDealFinance } from '../lib/dealFinance'
-import { indexDealParticipants, makeDealParticipantRows, participantIdsWithLegacyFallback } from '../lib/dealParticipants'
+import { useContacts } from '../hooks/useContacts'
+import { useDeals } from '../hooks/useDeals'
+import { usePropertyCatalog } from '../hooks/usePropertyCatalog'
+import { formatMoney } from '../lib/dealFinance'
+import { participantIdsWithLegacyFallback } from '../lib/dealParticipants'
 import Modal from '../components/Modal'
 import type { Deal } from '../types'
+import type { ContactSummary } from '../lib/contacts'
 
 type DealFormData = {
   propertyId: string
@@ -19,21 +22,7 @@ type DealFormData = {
   notes: string
 }
 
-type DealProperty = {
-  id: string
-  address: string
-  price?: number
-  ownerId?: string
-}
-
-type DealClient = {
-  id: string
-  firstName: string
-  lastName: string
-  phone: string
-  type: 'buyer' | 'seller'
-  roles: string[]
-}
+type DealClient = ContactSummary
 
 const emptyForm: DealFormData = {
   propertyId: '',
@@ -52,92 +41,30 @@ const clientName = (client?: DealClient) => client
 
 const DealsPage = () => {
   const { user } = useAuth()
-  const [deals, setDeals] = useState<Deal[]>([])
-  const [financeActivityIds, setFinanceActivityIds] = useState<Map<string, string>>(new Map())
-  const [properties, setProperties] = useState<DealProperty[]>([])
-  const [clients, setClients] = useState<DealClient[]>([])
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
+  const dealsQuery = useDeals(user?.id)
+  const propertyQuery = usePropertyCatalog(user?.id)
+  const contactsQuery = useContacts(user?.id)
+  const deals = dealsQuery.data || []
+  const properties = propertyQuery.data?.properties || []
+  const clients = contactsQuery.data || []
+  const loading = dealsQuery.isLoading || propertyQuery.isLoading || contactsQuery.isLoading
+  const loadError = dealsQuery.error || propertyQuery.error || contactsQuery.error
+  const [actionError, setActionError] = useState('')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingDeal, setEditingDeal] = useState<Deal | null>(null)
   const [formData, setFormData] = useState<DealFormData>(emptyForm)
 
-  const load = useCallback(async () => {
-    if (!user) return
-    setLoading(true)
-    setError('')
-    try {
-      const [dealsResult, propertiesResult, clientsResult, financeResult, participantsResult] = await Promise.all([
-        supabase.from('deals').select('*').eq('user_id', user.id).is('deleted_at', null).order('created_at', { ascending: false }),
-        supabase.from('properties').select('id,address,price,owner_id').eq('user_id', user.id).is('deleted_at', null).order('created_at', { ascending: false }),
-        supabase.from('clients').select('id,first_name,last_name,phone,type,roles').eq('user_id', user.id).is('deleted_at', null).order('created_at', { ascending: false }),
-        supabase.from('crm_activities').select('id,external_key,metadata').eq('user_id', user.id).eq('type', 'note').ilike('external_key', 'deal-finance:%').is('deleted_at', null),
-        supabase.from('deal_participants').select('deal_id,client_id,role').eq('user_id', user.id),
-      ])
-      const firstError = [dealsResult.error, propertiesResult.error, clientsResult.error, financeResult.error, participantsResult.error].find(Boolean)
-      if (firstError) throw firstError
-
-      const mappedProperties = (propertiesResult.data ?? []).map(item => ({
-        id: item.id,
-        address: item.address || 'Адрес не указан',
-        price: item.price === null ? undefined : Number(item.price),
-        ownerId: item.owner_id || undefined,
-      }))
-      setProperties(mappedProperties)
-      setClients((clientsResult.data ?? []).map(item => ({
-        id: item.id,
-        firstName: item.first_name || '',
-        lastName: item.last_name || '',
-        phone: item.phone || '',
-        type: item.type,
-        roles: item.roles || [],
-      })))
-      const financeByDeal = indexDealFinance(financeResult.data ?? [])
-      const participantsByDeal = indexDealParticipants(participantsResult.data ?? [])
-      setFinanceActivityIds(new Map((financeResult.data ?? []).map(item => [String(item.external_key).replace(/^deal-finance:/, ''), String(item.id)])))
-      setDeals((dealsResult.data ?? []).map(item => {
-        const legacyOwnerId = mappedProperties.find(property => property.id === item.property_id)?.ownerId
-        const participants = participantsByDeal.get(item.id)
-        const buyerIds = participantIdsWithLegacyFallback(participants?.buyerIds, item.buyer_id || undefined)
-        const ownerIds = participantIdsWithLegacyFallback(participants?.ownerIds, legacyOwnerId)
-        return {
-          id: item.id,
-          userId: item.user_id,
-          propertyId: item.property_id,
-          buyerId: buyerIds[0],
-          buyerIds,
-          ownerId: ownerIds[0],
-          ownerIds,
-          price: item.price === null ? undefined : Number(item.price),
-          agencyIncome: financeByDeal.get(item.id)?.agencyIncome,
-          agentIncome: financeByDeal.get(item.id)?.agentIncome,
-          status: item.status,
-          notes: item.notes || undefined,
-          createdAt: item.created_at,
-          updatedAt: item.updated_at || item.created_at,
-        }
-      }))
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Не удалось загрузить сделки')
-    } finally {
-      setLoading(false)
-    }
-  }, [user])
-
-  useEffect(() => { void load() }, [load])
-
   const buyers = useMemo(
-    () => clients.filter(client => client.type === 'buyer' || client.roles.includes('buyer') || client.roles.includes('tenant')),
+    () => clients.filter(client => client.roles.includes('buyer') || client.roles.includes('tenant')),
     [clients],
   )
   const owners = useMemo(
-    () => clients.filter(client => client.type === 'seller' || client.roles.includes('seller') || client.roles.includes('landlord')),
+    () => clients.filter(client => client.roles.includes('seller') || client.roles.includes('landlord')),
     [clients],
   )
 
   const openModal = (deal?: Deal) => {
-    setError('')
+    setActionError('')
     setEditingDeal(deal ?? null)
     setFormData(deal ? {
       propertyId: deal.propertyId,
@@ -160,7 +87,7 @@ const DealsPage = () => {
       ...current,
       propertyId,
       ownerIds: property?.ownerId && !current.ownerIds.some(Boolean) ? [property.ownerId] : current.ownerIds,
-      price: current.price ?? property?.price,
+      price: current.price ?? property?.price ?? undefined,
     }))
   }
 
@@ -179,82 +106,37 @@ const DealsPage = () => {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!user) return
-    setSaving(true)
-    setError('')
+    setActionError('')
     try {
       const buyerIds = [...new Set(formData.buyerIds.filter(Boolean))]
       const ownerIds = [...new Set(formData.ownerIds.filter(Boolean))]
       if (buyerIds.length === 0 || ownerIds.length === 0) throw new Error('Выберите хотя бы одного покупателя и одного собственника')
-      const selectedProperty = properties.find(property => property.id === formData.propertyId)
-      if (selectedProperty?.ownerId !== ownerIds[0]) {
-        const { error: propertyError } = await supabase
-          .from('properties')
-          .update({ owner_id: ownerIds[0] })
-          .eq('id', formData.propertyId)
-          .eq('user_id', user.id)
-        if (propertyError) throw propertyError
-      }
-
-      const payload = {
-        user_id: user.id,
-        property_id: formData.propertyId,
-        buyer_id: buyerIds[0],
-        price: formData.price ?? null,
+      await dealsQuery.saveDeal({
+        propertyId: formData.propertyId,
+        buyerIds,
+        ownerIds,
+        price: formData.price,
+        agencyIncome: formData.agencyIncome,
+        agentIncome: formData.agentIncome,
         status: formData.status,
-        notes: formData.notes || null,
-      }
-      let dealId = editingDeal?.id
-      if (editingDeal) {
-        const { error: dealError } = await supabase.from('deals').update(payload).eq('id', editingDeal.id).eq('user_id', user.id)
-        if (dealError) throw dealError
-      } else {
-        const { data: createdDeal, error: dealError } = await supabase.from('deals').insert(payload).select('id').single()
-        if (dealError) throw dealError
-        dealId = createdDeal.id
-      }
-
-      const { error: removeParticipantsError } = await supabase.from('deal_participants').delete().eq('deal_id', dealId!).eq('user_id', user.id)
-      if (removeParticipantsError) throw removeParticipantsError
-      const participantRows = makeDealParticipantRows(user.id, dealId!, buyerIds, ownerIds)
-      const { error: participantsError } = await supabase.from('deal_participants').insert(participantRows)
-      if (participantsError) throw participantsError
-
-      const financePayload = {
-        user_id: user.id,
-        property_id: formData.propertyId,
-        type: 'note',
-        status: 'completed',
-        title: 'Финансы сделки',
-        occurred_at: formData.status === 'closed' ? new Date().toISOString() : null,
-        external_key: dealFinanceKey(dealId!),
-        metadata: {
-          deal_id: dealId,
-          final_amount: formData.price ?? null,
-          agency_income: formData.agencyIncome ?? null,
-          agent_income: formData.agentIncome ?? null,
-        },
-      }
-      const existingFinanceId = financeActivityIds.get(dealId!)
-      const { error: financeError } = existingFinanceId
-        ? await supabase.from('crm_activities').update(financePayload).eq('id', existingFinanceId).eq('user_id', user.id)
-        : await supabase.from('crm_activities').insert(financePayload)
-      if (financeError) throw financeError
+        notes: formData.notes || undefined,
+      }, editingDeal?.id)
 
       setIsModalOpen(false)
       setEditingDeal(null)
-      await load()
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Не удалось сохранить сделку')
-    } finally {
-      setSaving(false)
+      setActionError(saveError instanceof Error ? saveError.message : 'Не удалось сохранить сделку')
     }
   }
 
-  const removeDeal = async (deal: Deal) => {
+  const handleRemoveDeal = async (deal: Deal) => {
     if (!user) return
-    const { error: deleteError } = await supabase.from('deals').update({ deleted_at: new Date().toISOString() }).eq('id', deal.id).eq('user_id', user.id)
-    if (deleteError) setError(deleteError.message)
-    else await load()
+    setActionError('')
+    try {
+      await dealsQuery.removeDeal(deal.id)
+    } catch (deleteError) {
+      setActionError(deleteError instanceof Error ? deleteError.message : 'Не удалось удалить сделку')
+    }
   }
 
   const statusLabel: Record<Deal['status'], string> = {
@@ -282,7 +164,7 @@ const DealsPage = () => {
         </button>
       </div>
 
-      {error && <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400">{error}</div>}
+      {(actionError || loadError) && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400"><span>{actionError || (loadError instanceof Error ? loadError.message : 'Не удалось загрузить сделки')}</span>{loadError && <button type="button" onClick={() => void Promise.all([dealsQuery.refetch(), propertyQuery.refetch(), contactsQuery.refetch()])} className="font-semibold underline">Повторить</button>}</div>}
       {loading ? (
         <div className="lumi-muted py-20 text-center">Загружаем сделки…</div>
       ) : deals.length === 0 ? (
@@ -319,7 +201,7 @@ const DealsPage = () => {
                 </div>
                 <div className="mt-4 flex justify-end gap-2">
                   <button type="button" onClick={() => openModal(deal)} className="lumi-control rounded-lg p-2" aria-label="Редактировать сделку"><Edit className="h-4 w-4" /></button>
-                  <button type="button" onClick={() => void removeDeal(deal)} className="rounded-lg bg-red-500/10 p-2 text-red-500" aria-label="Удалить сделку"><Trash2 className="h-4 w-4" /></button>
+                  <button type="button" onClick={() => void handleRemoveDeal(deal)} className="rounded-lg bg-red-500/10 p-2 text-red-500" aria-label="Удалить сделку"><Trash2 className="h-4 w-4" /></button>
                 </div>
               </motion.article>
             )
@@ -373,10 +255,10 @@ const DealsPage = () => {
             <label className="lumi-muted-strong mb-2 block text-sm font-medium">Заметки</label>
             <textarea value={formData.notes} onChange={event => setFormData(current => ({ ...current, notes: event.target.value }))} rows={4} className="lumi-control w-full resize-none rounded-xl px-4 py-3 outline-none" placeholder="Условия и договорённости по сделке" />
           </div>
-          {error && <p className="text-sm text-red-500">{error}</p>}
+          {actionError && <p className="text-sm text-red-500">{actionError}</p>}
           <div className="flex flex-col-reverse gap-3 sm:flex-row">
             <button type="button" onClick={() => setIsModalOpen(false)} className="lumi-control flex-1 rounded-xl px-6 py-3 font-medium">Отмена</button>
-            <button type="submit" disabled={saving || !properties.length || !buyers.length || !owners.length} className="lumi-gradient-button flex-1 rounded-xl px-6 py-3 font-semibold disabled:opacity-50"><BriefcaseBusiness className="mr-2 inline h-4 w-4" />{saving ? 'Сохраняем…' : editingDeal ? 'Сохранить' : 'Создать сделку'}</button>
+            <button type="submit" disabled={dealsQuery.mutationPending || !properties.length || !buyers.length || !owners.length} className="lumi-gradient-button flex-1 rounded-xl px-6 py-3 font-semibold disabled:opacity-50"><BriefcaseBusiness className="mr-2 inline h-4 w-4" />{dealsQuery.mutationPending ? 'Сохраняем…' : editingDeal ? 'Сохранить' : 'Создать сделку'}</button>
           </div>
         </form>
       </Modal>

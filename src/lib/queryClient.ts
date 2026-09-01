@@ -8,6 +8,9 @@ export const crmQueryKeys = {
   tasks: (userId: string) => ['crm', userId, 'tasks'] as const,
   events: (userId: string) => ['crm', userId, 'events'] as const,
   calls: (userId: string) => ['crm', userId, 'calls'] as const,
+  deals: (userId: string) => ['crm', userId, 'deals'] as const,
+  monthlyPlan: (userId: string) => ['crm', userId, 'monthly-plan'] as const,
+  planActuals: (userId: string) => ['crm', userId, 'plan-actuals'] as const,
 }
 
 export const queryClient = new QueryClient({

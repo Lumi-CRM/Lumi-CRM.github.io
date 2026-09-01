@@ -1,34 +1,23 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { CalendarRange, Download, Save, Target } from 'lucide-react'
-import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { useMonthlyPlan } from '../hooks/useMonthlyPlan'
 import { printCurrentPage } from '../lib/print'
 import { indexDealFinance } from '../lib/dealFinance'
+import { emptyPlanTargets, PLAN_METRICS, type PlanMetricKey, type PlanTargetMap } from '../lib/monthlyPlanMapping'
 import { calculateCombinedPlanActual, calculatePlanProgress, parsePlanNumberDraft } from '../lib/planProgress'
 
-const METRICS = [
-  ['coldCalls', 'Холодные звонки', 'count'], ['meetings', 'Встречи', 'count'], ['posting', 'Расклейка', 'count'],
-  ['distribution', 'Раскидка', 'count'], ['agencyContracts', 'Агентский договор', 'count'], ['secondaryDeals', 'Вторичка (сделки)', 'count'],
-  ['top100', 'Топ 100 (рассылка)', 'count'], ['consultations', 'Консультация', 'count'], ['reservations', 'Брони', 'count'],
-  ['newBuildDeals', 'Первичка (сделки)', 'count'], ['secondaryRevenue', 'Приход агентства (вторичка)', 'money'], ['newBuildRevenue', 'Приход агентства (первичка)', 'money'],
-  ['secondaryAgentIncome', 'Доход агента (вторичка)', 'money'], ['newBuildAgentIncome', 'Доход агента (первичка)', 'money'],
-] as const
+type MetricKey = PlanMetricKey
+type TargetMap = PlanTargetMap
+type WeekTargets = PlanTargetMap[]
 
-type MetricKey = typeof METRICS[number][0]
-type TargetMap = Record<MetricKey, number>
-type WeekTargets = TargetMap[]
-
-const emptyTargets = () => Object.fromEntries(METRICS.map(([key]) => [key, 0])) as TargetMap
+const emptyTargets = emptyPlanTargets
 const currentMonthRange = () => {
   const now = new Date()
   const start = new Date(now.getFullYear(), now.getMonth(), 1)
   const end = new Date(now.getFullYear(), now.getMonth() + 1, 0)
   return { startsOn: start.toISOString().slice(0, 10), endsOn: end.toISOString().slice(0, 10) }
 }
-
-interface PlanRow { id: string; title: string; starts_on: string; ends_on: string; targets: Partial<TargetMap>; weekly_targets: Array<Partial<TargetMap>> }
-interface ActivityRow { type: string; occurred_at: string | null; external_key: string | null; metadata: Record<string, unknown> | null }
-interface DealRow { id: string; property_id: string; price: number | null; status: string; created_at: string }
 
 interface PlanNumberInputProps {
   value: number
@@ -59,6 +48,7 @@ const PlanNumberInput = ({ value, ariaLabel, className, onValueChange }: PlanNum
 
 const MonthlyPlanPage = () => {
   const { user } = useAuth()
+  const planQuery = useMonthlyPlan(user?.id)
   const range = currentMonthRange()
   const [planId, setPlanId] = useState<string | null>(null)
   const [title, setTitle] = useState('План на месяц')
@@ -66,37 +56,22 @@ const MonthlyPlanPage = () => {
   const [endsOn, setEndsOn] = useState(range.endsOn)
   const [targets, setTargets] = useState<TargetMap>(emptyTargets)
   const [weeklyActuals, setWeeklyActuals] = useState<WeekTargets>(() => Array.from({ length: 5 }, emptyTargets))
-  const [activities, setActivities] = useState<ActivityRow[]>([])
-  const [deals, setDeals] = useState<DealRow[]>([])
-  const [newBuildingIds, setNewBuildingIds] = useState<Set<string>>(new Set())
-  const [loading, setLoading] = useState(true)
-  const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
 
-  const load = useCallback(async () => {
-    if (!user) return
-    setLoading(true)
-    setMessage('')
-    const [planResult, activityResult, dealResult, detailsResult] = await Promise.all([
-      supabase.from('monthly_plans').select('*').eq('user_id', user.id).order('starts_on', { ascending: false }).limit(1).maybeSingle(),
-      supabase.from('crm_activities').select('type,occurred_at,external_key,metadata').eq('user_id', user.id).is('deleted_at', null).eq('status', 'completed'),
-      supabase.from('deals').select('id,property_id,price,status,created_at').eq('user_id', user.id).is('deleted_at', null),
-      supabase.from('property_details').select('property_id,new_building').eq('user_id', user.id).eq('new_building', true),
-    ])
-    if (planResult.data) {
-      const plan = planResult.data as PlanRow
-      setPlanId(plan.id); setTitle(plan.title); setStartsOn(plan.starts_on); setEndsOn(plan.ends_on)
-      setTargets({ ...emptyTargets(), ...(plan.targets || {}) })
-      setWeeklyActuals(Array.from({ length: 5 }, (_, index) => ({ ...emptyTargets(), ...(plan.weekly_targets?.[index] || {}) })))
-    }
-    if (planResult.error) setMessage('Таблица планов ещё не настроена в Supabase.')
-    setActivities((activityResult.data || []) as ActivityRow[])
-    setDeals((dealResult.data || []) as DealRow[])
-    setNewBuildingIds(new Set((detailsResult.data || []).map(row => row.property_id)))
-    setLoading(false)
-  }, [user])
+  useEffect(() => {
+    const plan = planQuery.plan
+    if (!plan) return
+    setPlanId(plan.id)
+    setTitle(plan.title)
+    setStartsOn(plan.startsOn)
+    setEndsOn(plan.endsOn)
+    setTargets(plan.targets)
+    setWeeklyActuals(plan.weeklyActuals)
+  }, [planQuery.plan])
 
-  useEffect(() => { void load() }, [load])
+  const activities = planQuery.actuals?.activities || []
+  const deals = planQuery.actuals?.deals || []
+  const newBuildingIds = useMemo(() => new Set(planQuery.actuals?.newBuildingIds || []), [planQuery.actuals?.newBuildingIds])
 
   const dateInRange = (value: string | null, start: string, end: string) => Boolean(value && value.slice(0, 10) >= start && value.slice(0, 10) <= end)
   const automaticActual = useMemo(() => {
@@ -120,31 +95,32 @@ const MonthlyPlanPage = () => {
     return result
   }, [activities, deals, endsOn, newBuildingIds, startsOn])
 
-  const actualBreakdown = useMemo(() => Object.fromEntries(METRICS.map(([key]) => [
+  const actualBreakdown = useMemo(() => Object.fromEntries(PLAN_METRICS.map(([key]) => [
     key,
     calculateCombinedPlanActual(automaticActual[key], weeklyActuals.map(week => week[key])),
   ])) as Record<MetricKey, ReturnType<typeof calculateCombinedPlanActual>>, [automaticActual, weeklyActuals])
 
   const save = async () => {
     if (!user) return
-    setSaving(true); setMessage('')
-    const payload = { user_id: user.id, title, starts_on: startsOn, ends_on: endsOn, targets, weekly_targets: weeklyActuals }
-    const result = planId
-      ? await supabase.from('monthly_plans').update(payload).eq('id', planId).eq('user_id', user.id).select('id').single()
-      : await supabase.from('monthly_plans').insert(payload).select('id').single()
-    setSaving(false)
-    if (result.error) setMessage('Не удалось сохранить план. Проверьте настройку базы.')
-    else { setPlanId(result.data.id); setMessage('План сохранён и синхронизирован с базой.') }
+    setMessage('')
+    try {
+      const result = await planQuery.savePlan({ title, startsOn, endsOn, targets, weeklyActuals }, planId || undefined)
+      setPlanId(result.id)
+      setMessage(navigator.onLine ? 'План сохранён и синхронизирован с базой.' : 'План сохранён на устройстве и будет синхронизирован позже.')
+    } catch {
+      setMessage('Не удалось сохранить план. Повторите попытку.')
+    }
   }
 
   const changeTarget = (key: MetricKey, value: number) => setTargets(current => ({ ...current, [key]: value }))
   const changeWeekActual = (week: number, key: MetricKey, value: number) => setWeeklyActuals(current => current.map((item, index) => index === week ? { ...item, [key]: value } : item))
 
   return <div className="min-w-0 space-y-6 pb-10">
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="lumi-text text-3xl font-bold">План работы</h1><p className="lumi-muted mt-1">Цели месяца, недельная разбивка и автоматический факт из CRM.</p></div><div className="flex flex-col gap-2 sm:flex-row"><button type="button" onClick={() => void printCurrentPage()} className="lumi-control flex items-center justify-center gap-2 rounded-xl px-4 py-3"><Download className="h-4 w-4" />PDF</button><button type="button" disabled={saving} onClick={() => void save()} className="lumi-gradient-button flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold disabled:opacity-60"><Save className="h-4 w-4" />{saving ? 'Сохраняем…' : 'Сохранить'}</button></div></div>
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between"><div><h1 className="lumi-text text-3xl font-bold">План работы</h1><p className="lumi-muted mt-1">Цели месяца, недельная разбивка и автоматический факт из CRM.</p></div><div className="flex flex-col gap-2 sm:flex-row"><button type="button" onClick={() => void printCurrentPage()} className="lumi-control flex items-center justify-center gap-2 rounded-xl px-4 py-3"><Download className="h-4 w-4" />PDF</button><button type="button" disabled={planQuery.mutationPending} onClick={() => void save()} className="lumi-gradient-button flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold disabled:opacity-60"><Save className="h-4 w-4" />{planQuery.mutationPending ? 'Сохраняем…' : 'Сохранить'}</button></div></div>
     {message && <p className="lumi-panel rounded-xl border px-4 py-3 text-sm">{message}</p>}
+    {planQuery.error && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400"><span>{planQuery.error instanceof Error ? planQuery.error.message : 'Не удалось загрузить план'}</span><button type="button" onClick={() => void planQuery.refetch()} className="font-semibold underline">Повторить</button></div>}
     <section className="lumi-panel rounded-2xl border p-5"><div className="grid gap-4 sm:grid-cols-3"><label className="lumi-muted-strong text-sm font-medium">Название<input value={title} onChange={event => setTitle(event.target.value)} className="lumi-control mt-2 w-full rounded-xl px-4 py-3" /></label><label className="lumi-muted-strong text-sm font-medium">С даты<input type="date" value={startsOn} onChange={event => setStartsOn(event.target.value)} className="lumi-control mt-2 w-full rounded-xl px-4 py-3" /></label><label className="lumi-muted-strong text-sm font-medium">По дату<input type="date" value={endsOn} onChange={event => setEndsOn(event.target.value)} className="lumi-control mt-2 w-full rounded-xl px-4 py-3" /></label></div></section>
-    {loading ? <p className="lumi-muted py-12 text-center">Загружаем план…</p> : <div data-print-list className="grid gap-4 lg:grid-cols-2">{METRICS.map(([key, label, unit]) => {
+    {planQuery.isLoading ? <p className="lumi-muted py-12 text-center">Загружаем план…</p> : <div data-print-list className="grid gap-4 lg:grid-cols-2">{PLAN_METRICS.map(([key, label, unit]) => {
       const target = targets[key]
       const breakdown = actualBreakdown[key]
       const progress = calculatePlanProgress(breakdown.total, target)

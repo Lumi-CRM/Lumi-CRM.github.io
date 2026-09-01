@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import { dealFromInput, mapDealRows } from './dealMapping.ts'
+
+test('maps deal participants and separate finance values', () => {
+  const [deal] = mapDealRows([
+    { id: 'deal-1', user_id: 'user-1', property_id: 'property-1', buyer_id: 'legacy-buyer', price: 8_300_000, status: 'closed', created_at: '2026-08-01' },
+  ], [
+    { id: 'finance-1', external_key: 'deal-finance:deal-1', metadata: { agency_income: 200_000, agent_income: 80_000 } },
+  ], [
+    { deal_id: 'deal-1', client_id: 'buyer-1', role: 'buyer' },
+    { deal_id: 'deal-1', client_id: 'owner-1', role: 'owner' },
+  ])
+
+  assert.deepEqual(deal.buyerIds, ['buyer-1'])
+  assert.deepEqual(deal.ownerIds, ['owner-1'])
+  assert.equal(deal.agencyIncome, 200_000)
+  assert.equal(deal.agentIncome, 80_000)
+  assert.equal(deal.financeActivityId, 'finance-1')
+})
+
+test('creates optimistic deal with durable participant and finance data', () => {
+  const deal = dealFromInput('user-1', 'deal-1', 'finance-1', {
+    propertyId: 'property-1',
+    buyerIds: ['buyer-1', 'buyer-2'],
+    ownerIds: ['owner-1', 'owner-2'],
+    price: 5_000_000,
+    agencyIncome: 150_000,
+    agentIncome: 75_000,
+    status: 'active',
+    notes: 'Проверить документы',
+  })
+
+  assert.equal(deal.id, 'deal-1')
+  assert.deepEqual(deal.buyerIds, ['buyer-1', 'buyer-2'])
+  assert.deepEqual(deal.ownerIds, ['owner-1', 'owner-2'])
+  assert.equal(deal.financeActivityId, 'finance-1')
+})
