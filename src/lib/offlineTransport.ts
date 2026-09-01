@@ -35,6 +35,15 @@ export type OfflineStatus = {
   error?: string
 }
 
+export type OfflineQueueIssue = {
+  id: string
+  table: string
+  method: string
+  createdAt: number
+  attempts: number
+  lastError?: string
+}
+
 const DB_NAME = 'lumicrm-offline-v1'
 const DB_VERSION = 1
 const RESPONSE_STORE = 'responses'
@@ -495,6 +504,15 @@ export const getOfflineQueueCount = async (userId: string) => {
   return entries.length
 }
 
+export const getOfflineQueueIssues = async (userId: string): Promise<OfflineQueueIssue[]> => {
+  if (!hasIndexedDb()) return []
+  const entries = await getAllByIndex<QueuedRequest>(QUEUE_STORE, 'userId', userId).catch(() => [])
+  return entries
+    .filter(entry => entry.attempts > 0 || Boolean(entry.lastError))
+    .sort((left, right) => right.createdAt - left.createdAt)
+    .map(({ id, table, method, createdAt, attempts, lastError }) => ({ id, table, method, createdAt, attempts, lastError }))
+}
+
 const conflictFields: Record<string, string> = {
   property_details: 'property_id',
   client_requirements: 'client_id,purpose',
@@ -539,7 +557,12 @@ export const flushOfflineQueue = async () => {
           synced += 1
           continue
         }
-        if (response.status === 401 || response.status === 403 || response.status >= 500) break
+        if (response.status === 401 || response.status === 403 || response.status >= 500) {
+          entry.attempts += 1
+          entry.lastError = `HTTP ${response.status}: ${(await response.text()).slice(0, 240)}`
+          await runStore(QUEUE_STORE, 'readwrite', store => store.put(entry))
+          break
+        }
         entry.attempts += 1
         entry.lastError = `HTTP ${response.status}: ${(await response.text()).slice(0, 240)}`
         await runStore(QUEUE_STORE, 'readwrite', store => store.put(entry))

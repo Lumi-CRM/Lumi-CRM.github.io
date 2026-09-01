@@ -5,6 +5,7 @@ export const crmQueryKeys = {
   overview: (userId: string) => ['crm', userId, 'overview'] as const,
   contacts: (userId: string) => ['crm', userId, 'contacts'] as const,
   properties: (userId: string) => ['crm', userId, 'properties'] as const,
+  tasks: (userId: string) => ['crm', userId, 'tasks'] as const,
 }
 
 export const queryClient = new QueryClient({

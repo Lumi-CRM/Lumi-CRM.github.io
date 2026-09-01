@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
-import { AlarmClockPlus, Calendar, CheckCircle2, Clock, Edit, ListChecks, Plus, RotateCcw, Target, Trash2 } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { useMemo, useState } from 'react'
+import { AlarmClockPlus, Calendar, CheckCircle2, Clock, Edit, ListChecks, Plus, RefreshCw, RotateCcw, Target, Trash2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import Modal from '../components/Modal'
 import type { Task } from '../types'
 import { syncNativeReminders } from '../lib/nativeReminders'
-import { moveToTrash } from '../lib/trash'
+import { useTasks } from '../hooks/useTasks'
 
 type Quadrant = NonNullable<Task['eisenhowerQuadrant']>
 type SmartCriteria = NonNullable<Task['smartCriteria']>
@@ -32,8 +31,17 @@ const isCompleted = (task: Task) => task.status === 'done' || task.isCompleted
 
 const TasksPage = () => {
   const { user } = useAuth()
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [loading, setLoading] = useState(true)
+  const {
+    data: tasks = [],
+    isPending: loading,
+    error: loadError,
+    refetch,
+    saveTask: persistTask,
+    updateStatus,
+    postpone,
+    removeTask,
+    mutationPending,
+  } = useTasks(user?.id)
   const [error, setError] = useState('')
   const [activeQuadrant, setActiveQuadrant] = useState<Quadrant>('plan')
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -47,81 +55,47 @@ const TasksPage = () => {
   const [quadrant, setQuadrant] = useState<Quadrant>('plan')
   const [smart, setSmart] = useState<SmartCriteria>(emptySmart)
 
-  const fetchTasks = async () => {
-    if (!user) return
-    setLoading(true)
-    const { data, error: loadError } = await supabase
-      .from('tasks')
-      .select('*')
-      .eq('user_id', user.id)
-      .is('deleted_at', null)
-      .order('due_date', { ascending: true, nullsFirst: false })
-      .order('due_time', { ascending: true, nullsFirst: false })
-
-    if (loadError) setError('Задачи временно показаны из локальной копии. Новые изменения сохранятся на устройстве.')
-    if (data) setTasks(data.map(task => ({
-      ...task,
-      userId: task.user_id,
-      dueDate: task.due_date,
-      dueTime: task.due_time,
-      isFavorite: task.is_favorite,
-      isCompleted: task.is_completed,
-      createdAt: task.created_at,
-      completedAt: task.completed_at,
-      smartCriteria: task.smart_criteria || {},
-      eisenhowerQuadrant: task.eisenhower_quadrant || 'plan',
-      deletedAt: task.deleted_at,
-    })))
-    setLoading(false)
-  }
-
-  useEffect(() => { void fetchTasks() }, [user])
-
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!user) return
     setError('')
-    const payload = {
-      title,
-      description,
-      status,
-      priority,
-      due_date: dueDate || null,
-      due_time: dueTime || null,
-      smart_criteria: smart,
-      eisenhower_quadrant: quadrant,
-      is_completed: status === 'done',
-      completed_at: status === 'done' ? new Date().toISOString() : null,
-    }
-    const result = editingTask
-      ? await supabase.from('tasks').update(payload).eq('id', editingTask.id).eq('user_id', user.id)
-      : await supabase.from('tasks').insert({ ...payload, user_id: user.id })
-    if (result.error) {
+    try {
+      await persistTask({
+        title,
+        description,
+        status,
+        priority,
+        dueDate: dueDate || undefined,
+        dueTime: dueTime || undefined,
+        smartCriteria: smart,
+        eisenhowerQuadrant: quadrant,
+      }, editingTask?.id)
+    } catch {
       setError('Не удалось сохранить задачу.')
       return
     }
     setActiveQuadrant(quadrant)
     setIsModalOpen(false)
-    await fetchTasks()
     await syncNativeReminders(user.id).catch(() => undefined)
   }
 
   const updateTaskStatus = async (task: Task, newStatus: 'todo' | 'inprogress' | 'done') => {
     if (!user) return
-    await supabase
-      .from('tasks')
-      .update({ status: newStatus, is_completed: newStatus === 'done', completed_at: newStatus === 'done' ? new Date().toISOString() : null })
-      .eq('id', task.id)
-      .eq('user_id', user.id)
-    await fetchTasks()
+    setError('')
+    try {
+      await updateStatus({ task, status: newStatus })
+    } catch {
+      setError('Не удалось изменить статус задачи.')
+      return
+    }
     await syncNativeReminders(user.id).catch(() => undefined)
   }
 
   const deleteTask = async (taskId: string) => {
     if (!user) return
+    setError('')
     try {
-      await moveToTrash('tasks', taskId, user.id)
-      setTasks(current => current.filter(task => task.id !== taskId))
+      await removeTask(taskId)
     } catch {
       setError('Не удалось переместить задачу в корзину.')
     }
@@ -132,10 +106,15 @@ const TasksPage = () => {
     if (!user) return
     const currentDue = task.dueDate && task.dueTime ? new Date(`${task.dueDate}T${task.dueTime.slice(0, 8)}`) : new Date()
     const next = new Date(Math.max(currentDue.getTime(), Date.now()) + 15 * 60_000)
-    const due_date = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`
-    const due_time = `${String(next.getHours()).padStart(2, '0')}:${String(next.getMinutes()).padStart(2, '0')}:00`
-    await supabase.from('tasks').update({ due_date, due_time }).eq('id', task.id).eq('user_id', user.id)
-    await fetchTasks()
+    const dueDate = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`
+    const dueTime = `${String(next.getHours()).padStart(2, '0')}:${String(next.getMinutes()).padStart(2, '0')}:00`
+    setError('')
+    try {
+      await postpone({ task, dueDate, dueTime })
+    } catch {
+      setError('Не удалось отложить задачу.')
+      return
+    }
     await syncNativeReminders(user.id).catch(() => undefined)
   }
 
@@ -226,7 +205,7 @@ const TasksPage = () => {
         </button>
       </div>
 
-      {error && <div className="rounded-xl border border-red-700/40 bg-red-950/20 px-4 py-3 text-sm text-red-300">{error}</div>}
+      {(error || loadError) && <div className="flex flex-col gap-3 rounded-xl border border-red-700/40 bg-red-950/20 px-4 py-3 text-sm text-red-300 sm:flex-row sm:items-center sm:justify-between"><span>{error || 'Не удалось обновить задачи из облака. Показана копия с устройства.'}</span>{loadError && <button type="button" onClick={() => void refetch()} className="lumi-control inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 font-semibold"><RefreshCw className="h-4 w-4" />Повторить</button>}</div>}
 
       <div className="grid grid-cols-2 gap-2 lg:grid-cols-4" role="tablist" aria-label="Матрица Эйзенхауэра">
         {matrix.map(section => {
@@ -320,7 +299,7 @@ const TasksPage = () => {
 
           <div className="grid grid-cols-2 gap-3">
             <button type="button" onClick={() => setIsModalOpen(false)} className="lumi-control rounded-xl px-5 py-3 font-semibold">Отмена</button>
-            <button type="submit" className="lumi-gradient-button rounded-xl px-5 py-3 font-semibold">{editingTask ? 'Сохранить' : 'Создать задачу'}</button>
+            <button type="submit" disabled={mutationPending} className="lumi-gradient-button rounded-xl px-5 py-3 font-semibold disabled:opacity-50">{mutationPending ? 'Сохраняем…' : editingTask ? 'Сохранить' : 'Создать задачу'}</button>
           </div>
         </form>
       </Modal>

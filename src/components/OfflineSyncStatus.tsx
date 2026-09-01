@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Check, Cloud, CloudOff, HardDriveDownload, RefreshCw, Wifi } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { flushOfflineQueue, getOfflineQueueCount, type OfflineStatus } from '../lib/offlineTransport'
+import { flushOfflineQueue, getOfflineQueueCount, getOfflineQueueIssues, type OfflineQueueIssue, type OfflineStatus } from '../lib/offlineTransport'
 import { flushOfflineFiles, getOfflineFileQueueCount, prefetchCrmFiles } from '../lib/offlineFiles'
 import { checkCloudConnection, supabase, warmOfflineWorkspace } from '../lib/supabase'
+import { describeQueueIssue } from '../lib/syncDiagnostics'
 import AnchoredPopover from './AnchoredPopover'
 
 const getDeviceId = () => {
@@ -23,6 +24,7 @@ const OfflineSyncStatus = () => {
   const cloudOnlineRef = useRef(navigator.onLine)
   const [open, setOpen] = useState(false)
   const [status, setStatus] = useState<OfflineStatus>({ online: navigator.onLine, pending: 0, syncing: navigator.onLine })
+  const [issues, setIssues] = useState<OfflineQueueIssue[]>([])
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(() => user ? Number(localStorage.getItem(lastSyncKey(user.id)) || 0) || null : null)
 
   const rememberSuccessfulSync = useCallback(() => {
@@ -34,11 +36,13 @@ const OfflineSyncStatus = () => {
 
   const refresh = useCallback(async () => {
     if (!user) return 0
-    const [dataPending, filePending] = await Promise.all([
+    const [dataPending, filePending, queueIssues] = await Promise.all([
       getOfflineQueueCount(user.id),
       getOfflineFileQueueCount(user.id),
+      getOfflineQueueIssues(user.id),
     ])
     const pending = dataPending + filePending
+    setIssues(queueIssues)
     setStatus(previous => ({ ...previous, pending }))
     return pending
   }, [user])
@@ -180,7 +184,8 @@ const OfflineSyncStatus = () => {
         </div>
 
         {status.error && <div className="mt-3 flex items-start gap-2 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-200"><AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{status.error}</span></div>}
-        <button type="button" disabled={status.syncing || !navigator.onLine} onClick={() => void synchronize(true)} className="lumi-gradient-button mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${status.syncing ? 'animate-spin' : ''}`} />Проверить и синхронизировать</button>
+        {issues.length > 0 && <div className="mt-3 space-y-2"><p className="lumi-muted text-xs font-semibold uppercase tracking-wide">Не отправлено</p>{issues.slice(0, 3).map(issue => { const description = describeQueueIssue(issue); return <div key={issue.id} className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-xs"><div className="flex items-center justify-between gap-3"><span className="lumi-text font-semibold">{description.entity}</span><span className="lumi-muted">Попыток: {issue.attempts}</span></div><p className="mt-1 text-amber-200">{description.reason}</p><p className="lumi-muted mt-1">Сохранено на устройстве {new Date(issue.createdAt).toLocaleString('ru-RU')}</p></div> })}</div>}
+        <button type="button" disabled={status.syncing || !navigator.onLine} onClick={() => void synchronize(true)} className="lumi-gradient-button mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${status.syncing ? 'animate-spin' : ''}`} />{status.pending ? 'Повторить отправку' : 'Проверить синхронизацию'}</button>
         <p className="lumi-muted mt-3 text-[0.7rem] leading-5">LumiCRM не должен требовать VPN. Если интернет есть, но облако недоступно, приложение использует локальную копию и повторяет отправку автоматически.</p>
       </AnchoredPopover>
     </div>
