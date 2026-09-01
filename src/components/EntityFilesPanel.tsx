@@ -1,15 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Download, FileText, Loader2, Paperclip, Trash2, Upload } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import {
   createSignedFileUrl,
-  deleteCrmFile,
   formatFileSize,
-  listCrmFiles,
-  uploadCrmFile,
-  mapWithConcurrency,
   type CrmFileRecord,
 } from '../lib/files'
+import { useCrmFiles } from '../hooks/useCrmFiles'
 
 interface EntityFilesPanelProps {
   clientId?: string
@@ -21,45 +18,19 @@ interface EntityFilesPanelProps {
 const EntityFilesPanel = ({ clientId, propertyId, title = 'Документы', compact = false }: EntityFilesPanelProps) => {
   const { user } = useAuth()
   const inputRef = useRef<HTMLInputElement>(null)
-  const [files, setFiles] = useState<CrmFileRecord[]>([])
-  const [loading, setLoading] = useState(true)
-  const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
-
-  const loadFiles = useCallback(async () => {
-    if (!user) return
-    setLoading(true)
-    setError('')
-    try {
-      setFiles(await listCrmFiles({ userId: user.id, bucket: 'crm-documents', clientId, propertyId }))
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Не удалось загрузить документы')
-    } finally {
-      setLoading(false)
-    }
-  }, [clientId, propertyId, user])
-
-  useEffect(() => { void loadFiles() }, [loadFiles])
+  const { data: files = [], isPending: loading, error: queryError, uploadFiles, removeFile, uploading } = useCrmFiles({ userId: user?.id, bucket: 'crm-documents', clientId, propertyId })
+  const loadError = queryError instanceof Error ? queryError.message : queryError ? 'Не удалось загрузить документы' : ''
 
   const upload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(event.target.files || [])
     if (!user || selected.length === 0) return
-    setUploading(true)
     setError('')
     try {
-      await mapWithConcurrency(selected, 3, file => uploadCrmFile({
-          userId: user.id,
-          bucket: 'crm-documents',
-          clientId,
-          propertyId,
-          category: propertyId ? 'Документы объекта' : clientId ? 'Документы клиента' : 'Общие документы',
-          file,
-        }))
-      await loadFiles()
+      await uploadFiles(selected, propertyId ? 'Документы объекта' : clientId ? 'Документы клиента' : 'Общие документы')
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : 'Не удалось загрузить документы')
     } finally {
-      setUploading(false)
       event.target.value = ''
     }
   }
@@ -75,8 +46,7 @@ const EntityFilesPanel = ({ clientId, propertyId, title = 'Документы', 
 
   const remove = async (file: CrmFileRecord) => {
     try {
-      await deleteCrmFile(file)
-      setFiles(current => current.filter(item => item.id !== file.id))
+      await removeFile(file)
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : 'Не удалось удалить документ')
     }
@@ -96,7 +66,7 @@ const EntityFilesPanel = ({ clientId, propertyId, title = 'Документы', 
         <input ref={inputRef} type="file" multiple className="hidden" onChange={upload} accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.jpg,.jpeg,.png" />
       </div>
 
-      {error && <p className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">{error}</p>}
+      {(error || loadError) && <p className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">{error || loadError}</p>}
       {loading ? (
         <div className="lumi-muted flex items-center gap-2 py-6"><Loader2 className="h-5 w-5 animate-spin" />Загрузка документов…</div>
       ) : files.length === 0 ? (

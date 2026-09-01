@@ -1,65 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { ArrowLeft, Building2, Folder, Image as ImageIcon, Loader2, Search } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useAuth } from '../context/AuthContext'
-import { supabase } from '../lib/supabase'
 import PropertyMediaPanel from '../components/PropertyMediaPanel'
-
-interface PropertyFolder {
-  id: string
-  address: string
-  createdAt: string
-  imageCount: number
-}
+import { useGalleryFolders } from '../hooks/useGalleryFolders'
+import type { PropertyFolder } from '../lib/galleryMapping'
 
 const GalleryPage = () => {
   const { user } = useAuth()
-  const [folders, setFolders] = useState<PropertyFolder[]>([])
   const [selected, setSelected] = useState<PropertyFolder | null>(null)
   const [query, setQuery] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-
-  const load = useCallback(async () => {
-    if (!user) return
-    setLoading(true)
-    setError('')
-    try {
-      const [propertiesResult, imagesResult] = await Promise.all([
-        supabase
-          .from('properties')
-          .select('id,address,created_at')
-          .eq('user_id', user.id)
-          .is('deleted_at', null)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('crm_files')
-          .select('property_id')
-          .eq('user_id', user.id)
-          .eq('bucket', 'crm-images'),
-      ])
-      if (propertiesResult.error) throw propertiesResult.error
-      if (imagesResult.error) throw imagesResult.error
-
-      const counts = (imagesResult.data || []).reduce<Record<string, number>>((result, item) => {
-        if (item.property_id) result[item.property_id] = (result[item.property_id] || 0) + 1
-        return result
-      }, {})
-
-      setFolders((propertiesResult.data || []).map(item => ({
-        id: item.id,
-        address: item.address || 'Объект без адреса',
-        createdAt: item.created_at,
-        imageCount: counts[item.id] || 0,
-      })))
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Не удалось загрузить папки объектов')
-    } finally {
-      setLoading(false)
-    }
-  }, [user])
-
-  useEffect(() => { void load() }, [load])
+  const { data: folders = [], isPending: loading, error: queryError } = useGalleryFolders(user?.id)
+  const error = queryError instanceof Error ? queryError.message : queryError ? 'Не удалось загрузить папки объектов' : ''
 
   const visibleFolders = useMemo(() => folders.filter(folder =>
     folder.address.toLowerCase().includes(query.trim().toLowerCase())
@@ -69,7 +21,7 @@ const GalleryPage = () => {
     return (
       <div className="space-y-6">
         <div className="flex items-center gap-3">
-          <button type="button" onClick={() => { setSelected(null); void load() }} className="lumi-control rounded-xl p-2.5" aria-label="Назад к объектам">
+          <button type="button" onClick={() => setSelected(null)} className="lumi-control rounded-xl p-2.5" aria-label="Назад к объектам">
             <ArrowLeft className="h-5 w-5" />
           </button>
           <div>

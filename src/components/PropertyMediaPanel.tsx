@@ -1,23 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { Camera, Download, Image as ImageIcon, Loader2, Star, Trash2, Upload } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import {
-  createSignedFileUrls,
-  deleteCrmFile,
-  listCrmFiles,
-  mapWithConcurrency,
-  optimizeImageForUpload,
-  setPrimaryPropertyImage,
-  uploadCrmFile,
-  type CrmFileRecord,
-} from '../lib/files'
+import { useCrmFiles, type CrmFileView } from '../hooks/useCrmFiles'
 
 const MEDIA_GROUPS = [
   'Фасад и двор', 'Планировка', 'Прихожая', 'Кухня', 'Гостиная', 'Спальня',
   'Детская', 'Санузел', 'Балкон и лоджия', 'Вид из окон', 'Прочее',
 ]
-
-interface MediaWithUrl extends CrmFileRecord { signedUrl: string }
 
 interface PropertyMediaPanelProps {
   propertyId: string
@@ -28,71 +17,34 @@ const PropertyMediaPanel = ({ propertyId, propertyAddress }: PropertyMediaPanelP
   const { user } = useAuth()
   const inputRef = useRef<HTMLInputElement>(null)
   const [group, setGroup] = useState('Кухня')
-  const [files, setFiles] = useState<MediaWithUrl[]>([])
-  const [loading, setLoading] = useState(true)
-  const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
-
-  const load = useCallback(async () => {
-    if (!user) return
-    setLoading(true)
-    setError('')
-    try {
-      const records = await listCrmFiles({ userId: user.id, bucket: 'crm-images', propertyId })
-      const urlMap = await createSignedFileUrls(records)
-      const withUrls = records.flatMap(file => {
-        const signedUrl = urlMap.get(file.storage_path)
-        return signedUrl ? [{ ...file, signedUrl }] : []
-      })
-      setFiles(withUrls)
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Не удалось загрузить фотографии')
-    } finally {
-      setLoading(false)
-    }
-  }, [propertyId, user])
-
-  useEffect(() => { void load() }, [load])
+  const { data: files = [], isPending: loading, error: queryError, uploadFiles, setPrimary, removeFile, uploading } = useCrmFiles({ userId: user?.id, bucket: 'crm-images', propertyId, withUrls: true })
+  const loadError = queryError instanceof Error ? queryError.message : queryError ? 'Не удалось загрузить фотографии' : ''
 
   const upload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selected = Array.from(event.target.files || [])
     if (!user || selected.length === 0) return
-    setUploading(true)
     setError('')
     try {
-      const uploaded = await mapWithConcurrency(selected, 3, async original => {
-        const file = await optimizeImageForUpload(original)
-        return uploadCrmFile({ userId: user.id, bucket: 'crm-images', propertyId, category: group, file })
-      })
-      const urlMap = await createSignedFileUrls(uploaded)
-      setFiles(current => [
-        ...uploaded.flatMap(file => {
-          const signedUrl = urlMap.get(file.storage_path)
-          return signedUrl ? [{ ...file, signedUrl }] : []
-        }),
-        ...current,
-      ])
+      await uploadFiles(selected, group, true)
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : 'Не удалось загрузить фотографии')
     } finally {
-      setUploading(false)
       event.target.value = ''
     }
   }
 
-  const makePrimary = async (file: MediaWithUrl) => {
+  const makePrimary = async (file: CrmFileView) => {
     try {
-      await setPrimaryPropertyImage(file)
-      setFiles(current => current.map(item => ({ ...item, is_primary: item.id === file.id })))
+      await setPrimary(file)
     } catch (primaryError) {
       setError(primaryError instanceof Error ? primaryError.message : 'Не удалось выбрать главное фото')
     }
   }
 
-  const remove = async (file: MediaWithUrl) => {
+  const remove = async (file: CrmFileView) => {
     try {
-      await deleteCrmFile(file)
-      setFiles(current => current.filter(item => item.id !== file.id))
+      await removeFile(file)
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : 'Не удалось удалить фотографию')
     }
@@ -117,7 +69,7 @@ const PropertyMediaPanel = ({ propertyId, propertyAddress }: PropertyMediaPanelP
           <input ref={inputRef} type="file" multiple accept="image/*" className="hidden" onChange={upload} />
         </div>
         <p className="lumi-muted mt-3 text-sm">Папка объекта: {propertyAddress}. Файлы сохраняются отдельно по выбранным группам.</p>
-        {error && <p className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">{error}</p>}
+        {(error || loadError) && <p className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">{error || loadError}</p>}
       </section>
 
       {loading ? (
@@ -136,7 +88,7 @@ const PropertyMediaPanel = ({ propertyId, propertyAddress }: PropertyMediaPanelP
             <span className="lumi-accent-soft rounded-full px-2.5 py-1 text-xs font-semibold">{section.files.length}</span>
           </div>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
-            {section.files.map(file => (
+            {section.files.filter(file => file.signedUrl).map(file => (
               <article key={file.id} className="lumi-panel group overflow-hidden rounded-2xl border">
                 <div className="aspect-[4/3] overflow-hidden bg-black/10"><img src={file.signedUrl} alt={file.name} className="h-full w-full object-cover transition group-hover:scale-105" /></div>
                 <div className="flex items-center gap-2 p-3">
