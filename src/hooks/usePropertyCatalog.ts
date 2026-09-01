@@ -1,7 +1,25 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import type { Property } from '../types'
 import { fetchPropertyCatalog, type PropertyCatalog } from '../lib/propertyCatalog'
+import { propertyFromInput, type PropertyUpsertInput } from '../lib/propertyRecordMapping'
+import {
+  archiveProperty,
+  fetchPropertyDetails,
+  saveProperty,
+  setPropertyFavorite,
+  trashProperty,
+  type PropertyDetailsRecord,
+} from '../lib/properties'
 import { crmQueryKeys, queryClient } from '../lib/queryClient'
+
+type PropertyContext = { previous?: PropertyCatalog }
+
+export const usePropertyDetails = (userId?: string, propertyId?: string, enabled = true) => useQuery({
+  queryKey: crmQueryKeys.propertyDetails(userId || 'anonymous', propertyId || 'new'),
+  queryFn: () => fetchPropertyDetails(userId!, propertyId!),
+  enabled: Boolean(userId && propertyId && enabled),
+  staleTime: 2 * 60_000,
+})
 
 export const usePropertyCatalog = (userId?: string) => {
   const queryKey = crmQueryKeys.properties(userId || 'anonymous')
@@ -12,14 +30,93 @@ export const usePropertyCatalog = (userId?: string) => {
     staleTime: 2 * 60_000,
   })
 
-  const updateProperties = (updater: (properties: Property[]) => Property[]) => {
+  const beginOptimisticUpdate = async (updater: (catalog: PropertyCatalog) => PropertyCatalog): Promise<PropertyContext> => {
+    await queryClient.cancelQueries({ queryKey })
+    const previous = queryClient.getQueryData<PropertyCatalog>(queryKey)
+    queryClient.setQueryData<PropertyCatalog>(queryKey, current => updater(current || { properties: [], clients: [] }))
+    return { previous }
+  }
+  const restore = (context?: PropertyContext) => {
+    if (!context) return
+    if (context.previous) queryClient.setQueryData(queryKey, context.previous)
+    else queryClient.removeQueries({ queryKey, exact: true })
+  }
+  const refreshRelated = async () => {
     if (!userId) return
-    queryClient.setQueryData<PropertyCatalog>(queryKey, current => current ? { ...current, properties: updater(current.properties) } : current)
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey }),
+      queryClient.invalidateQueries({ queryKey: crmQueryKeys.overview(userId) }),
+      queryClient.invalidateQueries({ queryKey: crmQueryKeys.archive(userId) }),
+      queryClient.invalidateQueries({ queryKey: crmQueryKeys.favorites(userId) }),
+      queryClient.invalidateQueries({ queryKey: crmQueryKeys.trash(userId) }),
+      queryClient.invalidateQueries({ queryKey: crmQueryKeys.clientRecords(userId) }),
+      queryClient.invalidateQueries({ queryKey: crmQueryKeys.contacts(userId) }),
+      queryClient.invalidateQueries({ queryKey: ['crm', userId, 'search'] }),
+    ])
   }
 
-  const invalidate = () => userId
-    ? queryClient.invalidateQueries({ queryKey })
-    : Promise.resolve()
+  const saveMutation = useMutation({
+    mutationFn: ({ input, details, propertyId, id, ownerRoles }: {
+      input: PropertyUpsertInput
+      details: PropertyDetailsRecord
+      propertyId?: string
+      id: string
+      ownerRoles: string[]
+    }) => saveProperty(userId!, input, details, propertyId, id, ownerRoles),
+    onMutate: ({ input, propertyId, id }) => beginOptimisticUpdate(catalog => {
+      const previous = catalog.properties.find(property => property.id === propertyId)
+      const next = propertyFromInput(userId!, id, input, previous)
+      const properties = previous
+        ? catalog.properties.map(property => property.id === propertyId ? next : property)
+        : [next, ...catalog.properties]
+      return { ...catalog, properties }
+    }),
+    onError: (_error, _variables, context) => restore(context),
+    onSettled: async (_data, _error, variables) => {
+      await Promise.all([
+        refreshRelated(),
+        queryClient.invalidateQueries({ queryKey: crmQueryKeys.propertyDetails(userId!, variables.propertyId || variables.id) }),
+      ])
+    },
+  })
 
-  return { ...query, updateProperties, invalidate }
+  const favoriteMutation = useMutation({
+    mutationFn: (property: Property) => setPropertyFavorite(userId!, property),
+    onMutate: property => beginOptimisticUpdate(catalog => ({
+      ...catalog,
+      properties: catalog.properties.map(item => item.id === property.id ? { ...item, isFavorite: !item.isFavorite } : item),
+    })),
+    onError: (_error, _variables, context) => restore(context),
+    onSettled: refreshRelated,
+  })
+
+  const archiveMutation = useMutation({
+    mutationFn: (propertyId: string) => archiveProperty(userId!, propertyId),
+    onMutate: propertyId => beginOptimisticUpdate(catalog => ({
+      ...catalog,
+      properties: catalog.properties.filter(property => property.id !== propertyId),
+    })),
+    onError: (_error, _variables, context) => restore(context),
+    onSettled: refreshRelated,
+  })
+
+  const trashMutation = useMutation({
+    mutationFn: (propertyId: string) => trashProperty(userId!, propertyId),
+    onMutate: propertyId => beginOptimisticUpdate(catalog => ({
+      ...catalog,
+      properties: catalog.properties.filter(property => property.id !== propertyId),
+    })),
+    onError: (_error, _variables, context) => restore(context),
+    onSettled: refreshRelated,
+  })
+
+  return {
+    ...query,
+    saveProperty: (input: PropertyUpsertInput, details: PropertyDetailsRecord, propertyId?: string, ownerRoles: string[] = []) =>
+      saveMutation.mutateAsync({ input, details, propertyId, id: propertyId || crypto.randomUUID(), ownerRoles }),
+    toggleFavorite: favoriteMutation.mutateAsync,
+    archiveProperty: archiveMutation.mutateAsync,
+    removeProperty: trashMutation.mutateAsync,
+    mutationPending: saveMutation.isPending || favoriteMutation.isPending || archiveMutation.isPending || trashMutation.isPending,
+  }
 }

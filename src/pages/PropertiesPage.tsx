@@ -1,17 +1,15 @@
 import { useState } from 'react'
 import { Archive, Plus, Edit, Trash2, Search, Star, Eye, Building2, LoaderCircle, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { Property } from '../types'
 import PropertyForm from '../components/PropertyForm'
-import { moveToTrash } from '../lib/trash'
 import { usePropertyCatalog } from '../hooks/usePropertyCatalog'
 
 const PropertiesPage = () => {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { data, isPending: loading, error: queryError, refetch, updateProperties, invalidate } = usePropertyCatalog(user?.id)
+  const { data, isPending: loading, error: queryError, refetch, toggleFavorite: toggleFavoriteRecord, archiveProperty: archivePropertyRecord, removeProperty } = usePropertyCatalog(user?.id)
   const properties = data?.properties || []
   const clients = data?.clients || []
   const [searchQuery, setSearchQuery] = useState('')
@@ -45,35 +43,28 @@ const PropertiesPage = () => {
   }
 
   const toggleFavorite = async (propertyId: string) => {
-    if (!user) return
     const property = properties.find(p => p.id === propertyId)
     if (!property) return
-
-    const nextValue = !property.isFavorite
-    updateProperties(current => current.map(item => item.id === propertyId ? { ...item, isFavorite: nextValue } : item))
-    const { error: updateError } = await supabase.from('properties').update({ is_favorite: nextValue }).eq('id', propertyId).eq('user_id', user.id)
-    if (updateError) {
+    setActionError('')
+    try {
+      await toggleFavoriteRecord(property)
+    } catch {
       setActionError('Не удалось обновить избранное.')
-      await invalidate()
     }
   }
 
   const archiveProperty = async (propertyId: string) => {
-    if (!user) return
     setActionError('')
-    const { error: updateError } = await supabase.from('properties').update({ status: 'archived', archived_at: new Date().toISOString() }).eq('id', propertyId).eq('user_id', user.id)
-    if (updateError) {
+    try {
+      await archivePropertyRecord(propertyId)
+    } catch {
       setActionError('Не удалось переместить объект в архив.')
-      return
     }
-    updateProperties(current => current.filter(item => item.id !== propertyId))
   }
 
   const deleteProperty = async (propertyId: string) => {
-    if (!user) return
     try {
-      await moveToTrash('properties', propertyId, user.id)
-      updateProperties(current => current.filter(item => item.id !== propertyId))
+      await removeProperty(propertyId)
     } catch { setActionError('Не удалось переместить объект в корзину.') }
   }
 
@@ -136,7 +127,7 @@ const PropertiesPage = () => {
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
-                      toggleFavorite(prop.id)
+                      void toggleFavorite(prop.id)
                     }}
                     className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-colors"
                   >
@@ -181,7 +172,7 @@ const PropertiesPage = () => {
                   <button
                     onClick={(e) => {
                       e.stopPropagation()
-                      deleteProperty(prop.id)
+                      void deleteProperty(prop.id)
                     }}
                     title="Переместить в корзину на 5 дней"
                     className="px-4 py-2 bg-red-100 dark:bg-red-900/30 text-red-600 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
@@ -197,7 +188,7 @@ const PropertiesPage = () => {
 
       <PropertyForm
         isOpen={isModalOpen}
-        onClose={() => { setIsModalOpen(false); void invalidate() }}
+        onClose={() => setIsModalOpen(false)}
         property={editingProperty}
         clients={clients.filter(c => c.type === 'seller')}
       />

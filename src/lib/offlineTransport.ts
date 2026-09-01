@@ -66,6 +66,7 @@ const UUID_TABLES = new Set([
   'crm_imports',
   'crm_import_rows',
 ])
+const SOFT_DELETE_TABLES = new Set(['clients', 'properties', 'tasks', 'events', 'deals', 'crm_activities'])
 const SAFE_HEADERS = new Set(['accept', 'content-type', 'content-profile', 'prefer', 'range', 'range-unit'])
 const nativeFetch = globalThis.fetch.bind(globalThis)
 const READ_TIMEOUT_MS = 5_000
@@ -281,6 +282,7 @@ export const prepareOfflinePayload = (table: string, body: unknown) => {
     if (!value || typeof value !== 'object') return value
     const row = { ...(value as Record<string, unknown>) }
     if (UUID_TABLES.has(table) && !row.id) row.id = crypto.randomUUID()
+    if (SOFT_DELETE_TABLES.has(table) && row.deleted_at === undefined) row.deleted_at = null
     if (table === 'property_shares' && !row.slug) row.slug = crypto.randomUUID()
     return row
   })
@@ -378,8 +380,13 @@ const updateCachedTable = async (userId: string, table: string, method: string, 
       updatedSnapshots += 1
       let rows = parsed as Record<string, unknown>[]
       if (method === 'POST') {
+        const mutationUrl = new URL(url)
+        const identityFields = (mutationUrl.searchParams.get('on_conflict') || conflictFields[table] || 'id').split(',')
         for (const row of incoming) {
-          const existing = row.id ? rows.findIndex(item => item.id === row.id) : -1
+          const hasIdentity = identityFields.every(field => row[field] !== undefined)
+          const existing = hasIdentity
+            ? rows.findIndex(item => identityFields.every(field => JSON.stringify(item[field]) === JSON.stringify(row[field])))
+            : -1
           if (existing >= 0) rows[existing] = { ...rows[existing], ...row }
           else if (matchesMutation(row, record.url)) rows.push(row)
         }

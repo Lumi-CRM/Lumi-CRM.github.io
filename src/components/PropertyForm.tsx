@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Building2, FileText, Home, MapPin, Megaphone, Settings2, Tag, WalletCards, X } from 'lucide-react'
-import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import Modal from './Modal'
 import type { Client, Property } from '../types'
+import { usePropertyCatalog, usePropertyDetails } from '../hooks/usePropertyCatalog'
+import type { PropertyUpsertInput } from '../lib/propertyRecordMapping'
 
 interface PropertyFormProps {
   isOpen: boolean
@@ -12,29 +13,7 @@ interface PropertyFormProps {
   clients?: Client[]
 }
 
-type PropertyFormData = {
-  address: string
-  listingType: 'sale' | 'rent'
-  workStream: 'active' | 'cold'
-  propertyType: string
-  sourceUrl: string
-  price: number | undefined
-  rooms: number | undefined
-  area: number | undefined
-  floor: number | undefined
-  totalFloors: number | undefined
-  status: Property['status']
-  ownerId: string
-  tags: string[]
-  description: string
-  constructionYear: number | undefined
-  repair: string
-  balcony: boolean
-  elevator: boolean
-  parking: boolean
-  heating: string
-  walls: string
-}
+type PropertyFormData = PropertyUpsertInput
 
 type PropertyDetailsForm = {
   saleType: string
@@ -186,6 +165,8 @@ const numberOrNull = (value: string) => value.trim() === '' ? null : Number(valu
 
 const PropertyForm = ({ isOpen, onClose, property, clients = [] }: PropertyFormProps) => {
   const { user } = useAuth()
+  const { saveProperty } = usePropertyCatalog(user?.id)
+  const { data: propertyDetails } = usePropertyDetails(user?.id, property?.id, isOpen)
   const [section, setSection] = useState('deal')
   const [formData, setFormData] = useState<PropertyFormData>(emptyProperty)
   const [details, setDetails] = useState<PropertyDetailsForm>(emptyDetails)
@@ -213,14 +194,13 @@ const PropertyForm = ({ isOpen, onClose, property, clients = [] }: PropertyFormP
       heating: property.heating || 'central', walls: property.walls || '',
     })
 
-    let active = true
-    void supabase.from('property_details').select('*').eq('property_id', property.id).maybeSingle().then(({ data }) => {
-      if (!active || !data) return
-      const linked = data.linked_cards || {}
-      const publication = data.publication_settings || {}
-      const service = data.service_fields || {}
-      const rental = data.rental_terms || {}
-      const rentalDeal = data.rental_deal_data || {}
+    if (propertyDetails) {
+      const data = propertyDetails as Record<string, any>
+      const linked = data.linked_cards as Record<string, string> || {}
+      const publication = data.publication_settings as Record<string, boolean> || {}
+      const service = data.service_fields as Record<string, string> || {}
+      const rental = data.rental_terms as Record<string, any> || {}
+      const rentalDeal = data.rental_deal_data as Record<string, any> || {}
       setDetails({
         saleType: data.sale_type || 'direct', firstSale: Boolean(data.first_sale), auctionSale: Boolean(data.auction_sale),
         mortgageAllowed: Boolean(data.mortgage_allowed), ownerPaysCommission: Boolean(data.owner_pays_commission),
@@ -262,9 +242,10 @@ const PropertyForm = ({ isOpen, onClose, property, clients = [] }: PropertyFormP
         occupantsCount: String(rentalDeal.occupants_count ?? ''), rentalOwnershipType: rentalDeal.ownership_type || '',
         ownersCount: String(rentalDeal.owners_count ?? ''), encumbrance: rentalDeal.encumbrance || '',
       })
-    })
-    return () => { active = false }
-  }, [isOpen, property])
+    } else {
+      setDetails(emptyDetails)
+    }
+  }, [isOpen, property, propertyDetails])
 
   const updateProperty = <K extends keyof PropertyFormData>(key: K, value: PropertyFormData[K]) => setFormData(current => ({ ...current, [key]: value }))
   const updateDetails = <K extends keyof PropertyDetailsForm>(key: K, value: PropertyDetailsForm[K]) => setDetails(current => ({ ...current, [key]: value }))
@@ -280,29 +261,9 @@ const PropertyForm = ({ isOpen, onClose, property, clients = [] }: PropertyFormP
       return
     }
 
-    const propertyPayload = {
-      address: composedAddress, listing_type: formData.listingType, work_stream: formData.workStream, property_type: formData.propertyType || null, source_url: formData.sourceUrl || null,
-      price: formData.price ?? null, rooms: formData.rooms ?? null, area: formData.area ?? null,
-      floor: formData.floor ?? null, total_floors: formData.totalFloors ?? null, status: formData.status,
-      owner_id: formData.ownerId || null, tags: formData.tags, description: formData.description || null,
-      construction_year: formData.constructionYear ?? null, repair: formData.repair || null,
-      balcony: formData.balcony, elevator: formData.elevator, parking: formData.parking,
-      heating: formData.heating || null, walls: formData.walls || null, updated_at: new Date().toISOString(),
-    }
-
-    try {
-      let propertyId = property?.id
-      if (propertyId) {
-        const { error } = await supabase.from('properties').update(propertyPayload).eq('id', propertyId).eq('user_id', user.id)
-        if (error) throw error
-      } else {
-        const { data, error } = await supabase.from('properties').insert({ ...propertyPayload, user_id: user.id }).select('id').single()
-        if (error) throw error
-        propertyId = data.id
-      }
-
-      const { error: detailError } = await supabase.from('property_details').upsert({
-        property_id: propertyId, user_id: user.id, sale_type: details.saleType || null,
+    const input = { ...formData, address: composedAddress }
+    const detailsPayload = {
+        sale_type: details.saleType || null,
         first_sale: details.firstSale, auction_sale: details.auctionSale, mortgage_allowed: details.mortgageAllowed,
         owner_pays_commission: details.ownerPaysCommission, shared_commission: details.sharedCommission,
         online_showing: details.onlineShowing, apartment_type: details.apartmentType || null,
@@ -331,21 +292,11 @@ const PropertyForm = ({ isOpen, onClose, property, clients = [] }: PropertyFormP
         service_fields: { call_center_comment: details.callCenterComment, transfer_reason: details.transferReason, document_source_card: details.documentSourceCard, agent_reward: details.agentReward, agency_reward: details.agencyReward, executor_reward: details.executorReward, client_role: details.clientRole },
         rental_terms: { duration: details.rentalDuration, available_from: details.availableFrom || null, deposit_required: details.depositRequired, deposit_amount: numberOrNull(details.depositAmount), prepayment_months: numberOrNull(details.prepaymentMonths), utilities: details.utilities, meters: details.meters, owner_commission: details.ownerRentCommission, tenant_commission_percent: numberOrNull(details.tenantCommissionPercent), tenant_agent_commission_percent: numberOrNull(details.tenantAgentCommissionPercent), sleeping_places: numberOrNull(details.sleepingPlaces), air_conditioner: details.airConditioner, television: details.television, washing_machine: details.washingMachine, dishwasher: details.dishwasher, refrigerator: details.refrigerator, internet: details.internet, children_allowed: details.childrenAllowed, pets_allowed: details.petsAllowed },
         rental_deal_data: { contract_city: details.rentContractCity, contract_date: details.rentContractDate || null, occupants_count: numberOrNull(details.occupantsCount), ownership_type: details.rentalOwnershipType, owners_count: numberOrNull(details.ownersCount), encumbrance: details.encumbrance },
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'property_id' })
-      if (detailError) {
-        if (!property?.id && propertyId) {
-          await supabase.from('properties').delete().eq('id', propertyId).eq('user_id', user.id)
-        }
-        throw detailError
-      }
-      if (formData.ownerId) {
-        const owner = clients.find(client => client.id === formData.ownerId)
-        const role = formData.listingType === 'rent' ? 'landlord' : 'seller'
-        const roles = Array.from(new Set([...(owner?.roles || []), role]))
-        const { error: roleError } = await supabase.from('clients').update({ roles }).eq('id', formData.ownerId).eq('user_id', user.id)
-        if (roleError) console.warn('Owner role update failed:', roleError)
-      }
+    }
+
+    try {
+      const owner = clients.find(client => client.id === formData.ownerId)
+      await saveProperty(input, detailsPayload, property?.id, owner?.roles || [])
       onClose()
     } catch (error) {
       console.error('Property save failed:', error)

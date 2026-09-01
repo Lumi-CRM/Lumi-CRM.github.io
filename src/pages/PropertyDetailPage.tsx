@@ -1,7 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Camera, FileText, Edit, Trash2, Users } from 'lucide-react'
-import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import PropertyForm from '../components/PropertyForm'
 import EntityFilesPanel from '../components/EntityFilesPanel'
@@ -9,85 +8,27 @@ import PropertyMediaPanel from '../components/PropertyMediaPanel'
 import ActivityTimeline from '../components/ActivityTimeline'
 import PropertyShowingsPanel from '../components/PropertyShowingsPanel'
 import SharePropertyButton from '../components/SharePropertyButton'
-import { Property, Client } from '../types'
-import { moveToTrash } from '../lib/trash'
+import { usePropertyCatalog } from '../hooks/usePropertyCatalog'
 
 const PropertyDetailPage = () => {
   const navigate = useNavigate()
   const { id } = useParams()
   const { user } = useAuth()
-  const [property, setProperty] = useState<Property | null>(null)
-  const [owners, setOwners] = useState<Client[]>([])
-  const [owner, setOwner] = useState<Client | null>(null)
-  const [loading, setLoading] = useState(true)
+  const { data, isPending: loading, removeProperty } = usePropertyCatalog(user?.id)
+  const property = data?.properties.find(item => item.id === id) || null
+  const owners = data?.clients.filter(client => client.type === 'seller') || []
+  const owner = owners.find(item => item.id === property?.ownerId) || null
   const [activeTab, setActiveTab] = useState<'info' | 'photos' | 'documents' | 'showings'>('info')
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
 
-  const fetchData = async () => {
-    if (!id || !user) return
-    setLoading(true)
-    
-    const [propResult, clientsResult] = await Promise.all([
-      supabase.from('properties').select('*').eq('id', id).eq('user_id', user.id).is('deleted_at', null).single(),
-      supabase.from('clients').select('*').eq('user_id', user.id).is('deleted_at', null)
-    ])
-
-    if (propResult.data) {
-      const mappedProperty: Property = {
-        ...propResult.data,
-        userId: propResult.data.user_id,
-        ownerId: propResult.data.owner_id,
-        listingType: propResult.data.listing_type,
-        workStream: propResult.data.work_stream || 'active',
-        propertyType: propResult.data.property_type,
-        sourceUrl: propResult.data.source_url,
-        totalFloors: propResult.data.total_floors,
-        isFavorite: propResult.data.is_favorite,
-        constructionYear: propResult.data.construction_year,
-        photos: [],
-        documents: [],
-        notes: []
-      }
-      setProperty(mappedProperty)
-      
-      if (clientsResult.data) {
-        const mappedOwners = clientsResult.data.map(c => ({
-          ...c,
-          firstName: c.first_name,
-          lastName: c.last_name,
-          middleName: c.middle_name,
-          phone: c.phone,
-          email: c.email,
-          userId: c.user_id,
-          preferredDistricts: c.preferred_districts,
-          mortgageStatus: c.mortgage_status,
-          paymentMethod: c.payment_method,
-          propertyType: c.property_type,
-          isFavorite: c.is_favorite,
-          roles: c.roles || [],
-          tags: c.tags || [],
-          createdAt: c.created_at,
-          updatedAt: c.updated_at,
-          photos: [],
-          documents: [],
-          notes: []
-        }))
-        setOwners(mappedOwners)
-        const foundOwner = mappedOwners.find(o => o.id === mappedProperty.ownerId)
-        setOwner(foundOwner || null)
-      }
-    }
-    setLoading(false)
-  }
-
-  useEffect(() => {
-    fetchData()
-  }, [id, user])
-
   const handleDelete = async () => {
-    if (!id || !user) return
-    await moveToTrash('properties', id, user.id)
-    navigate('/properties')
+    if (!id) return
+    try {
+      await removeProperty(id)
+      navigate('/properties')
+    } catch {
+      alert('Не удалось переместить объект в корзину')
+    }
   }
 
   const getStatusColor = (status: string) => {
@@ -351,7 +292,7 @@ const PropertyDetailPage = () => {
       {/* Modals */}
       <PropertyForm
         isOpen={isEditModalOpen} 
-        onClose={() => { setIsEditModalOpen(false); fetchData() }} 
+        onClose={() => setIsEditModalOpen(false)}
         property={property}
         clients={owners}
       />

@@ -27,6 +27,7 @@ test('offline inserts receive durable client identifiers', () => {
   const prepared = prepareOfflinePayload('properties', { user_id: 'u1', address: 'Курск' }) as Record<string, unknown>
   assert.match(String(prepared.id), /^[0-9a-f-]{36}$/)
   assert.equal(prepared.address, 'Курск')
+  assert.equal(prepared.deleted_at, null)
 })
 
 test('offline property shares receive both id and public slug', () => {
