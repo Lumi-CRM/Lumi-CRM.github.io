@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import Modal from './Modal'
-import type { Event, Client, Property } from '../types'
+import type { Event } from '../types'
 import { getErrorMessage } from '../lib/errors'
+import { useContacts } from '../hooks/useContacts'
+import { usePropertyCatalog } from '../hooks/usePropertyCatalog'
+import { useEvents } from '../hooks/useEvents'
+import { syncNativeReminders } from '../lib/nativeReminders'
 
 interface NewEventFormProps {
   isOpen: boolean
@@ -14,6 +17,12 @@ interface NewEventFormProps {
 
 const NewEventForm = ({ isOpen, onClose, defaultType = 'meeting', editData = null }: NewEventFormProps) => {
   const { user } = useAuth()
+  const { data: contacts = [] } = useContacts(user?.id)
+  const { data: propertyCatalog } = usePropertyCatalog(user?.id)
+  const { saveEvent, mutationPending: saving } = useEvents(user?.id)
+  const owners = contacts.filter(contact => contact.roles.includes('seller') || contact.roles.includes('landlord'))
+  const buyers = contacts.filter(contact => contact.roles.includes('buyer') || contact.roles.includes('tenant'))
+  const properties = propertyCatalog?.properties || []
   const [eventType, setEventType] = useState<'meeting' | 'call'>(defaultType)
   const [title, setTitle] = useState('')
   const [date, setDate] = useState('')
@@ -23,48 +32,7 @@ const NewEventForm = ({ isOpen, onClose, defaultType = 'meeting', editData = nul
   const [relatedPropertyId, setRelatedPropertyId] = useState('')
   const [location, setLocation] = useState('')
   const [notes, setNotes] = useState('')
-  const [owners, setOwners] = useState<Client[]>([])
-  const [buyers, setBuyers] = useState<Client[]>([])
-  const [properties, setProperties] = useState<Property[]>([])
-  const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState('')
-
-  const fetchData = async () => {
-    if (!user) return
-    const [clientsRes, propsRes] = await Promise.all([
-      supabase.from('clients').select('*').eq('user_id', user.id).is('deleted_at', null),
-      supabase.from('properties').select('*').eq('user_id', user.id).is('deleted_at', null)
-    ])
-    if (clientsRes.data) {
-      const mappedClients = clientsRes.data.map(c => ({
-        ...c,
-        userId: c.user_id,
-        firstName: c.first_name || '',
-        lastName: c.last_name || '',
-        middleName: c.middle_name || '',
-        preferredDistricts: c.preferred_districts,
-        mortgageStatus: c.mortgage_status,
-        paymentMethod: c.payment_method,
-        propertyType: c.property_type,
-        isFavorite: c.is_favorite
-      }))
-      setOwners(mappedClients.filter(c => c.type === 'seller'))
-      setBuyers(mappedClients.filter(c => c.type === 'buyer'))
-    }
-    if (propsRes.data) {
-      const mappedProps = propsRes.data.map(p => ({
-        ...p,
-        userId: p.user_id,
-        totalFloors: p.total_floors,
-        isFavorite: p.is_favorite
-      }))
-      setProperties(mappedProps)
-    }
-  }
-
-  useEffect(() => {
-    fetchData()
-  }, [user])
 
   useEffect(() => {
     if (editData) {
@@ -103,31 +71,25 @@ const NewEventForm = ({ isOpen, onClose, defaultType = 'meeting', editData = nul
     if (!user) return
 
     const eventData = {
-      user_id: user.id,
       type: eventType,
       title,
-      event_date: date,
-      event_time: time || null,
-      location: eventType === 'meeting' ? location || null : null,
-      notes: notes || null,
-      related_client_id: relatedClientId || null,
-      related_client_type: relatedClientType || null,
-      related_property_id: relatedPropertyId || null
+      eventDate: date,
+      eventTime: time || undefined,
+      location: eventType === 'meeting' ? location || undefined : undefined,
+      notes: notes || undefined,
+      relatedClientId: relatedClientId || undefined,
+      relatedClientType: relatedClientType || undefined,
+      relatedPropertyId: eventType === 'meeting' ? relatedPropertyId || undefined : undefined,
     }
 
-    setSaving(true)
     setSaveError('')
     try {
-      const result = editData
-        ? await supabase.from('events').update(eventData).eq('id', editData.id).eq('user_id', user.id)
-        : await supabase.from('events').insert(eventData)
-      if (result.error) throw result.error
+      await saveEvent(eventData, editData?.id)
       resetForm()
       onClose()
+      await syncNativeReminders(user.id).catch(() => undefined)
     } catch (error) {
       setSaveError(`Не удалось сохранить событие: ${getErrorMessage(error, 'проверьте подключение и повторите')}`)
-    } finally {
-      setSaving(false)
     }
   }
 

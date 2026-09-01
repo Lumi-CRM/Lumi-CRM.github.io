@@ -1,42 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Calendar, Download, ExternalLink, Eye, Pencil, Phone, Plus, Search, Trash2 } from 'lucide-react'
-import { supabase } from '../lib/supabase'
+import { useMemo, useState } from 'react'
+import { Calendar, Download, ExternalLink, Eye, Pencil, Phone, Plus, RefreshCw, Search, Trash2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import Modal from '../components/Modal'
 import { printCurrentPage } from '../lib/print'
-
-type CallType = 'cold' | 'warm' | 'inbound' | 'selection'
-
-interface CallMetadata {
-  call_type: CallType
-  status: string
-  contact_method: string
-  contact_name: string
-  phone: string
-  address: string
-  property_type: string
-  demand: string
-  unsuitable: string
-  property_url: string
-  area: string
-  floor: string
-  price: string
-  contacted_at: string
-  next_contact_at: string
-  meeting_at: string
-  second_touch_at: string
-  second_comment: string
-}
-
-interface WorkCall {
-  id: string
-  title: string
-  occurred_at: string | null
-  source: string | null
-  outcome: string | null
-  notes: string | null
-  metadata: Partial<CallMetadata> | null
-}
+import { useCallActivities } from '../hooks/useCallActivities'
+import type { CallMetadata, CallType, WorkCall } from '../lib/callActivityMapping'
 
 const CALL_TYPES: Array<{ value: CallType; label: string }> = [
   { value: 'cold', label: 'Холодные' },
@@ -91,35 +59,14 @@ const displayDateTime = (value: string | null | undefined) => {
 
 const CallsPage = () => {
   const { user } = useAuth()
-  const [calls, setCalls] = useState<WorkCall[]>([])
-  const [loading, setLoading] = useState(true)
+  const { data: calls = [], isPending: loading, error: loadError, refetch, saveCall, removeCall, mutationPending: saving } = useCallActivities(user?.id)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [selectedCall, setSelectedCall] = useState<WorkCall | null>(null)
   const [activeType, setActiveType] = useState<CallType | 'all'>('all')
   const [search, setSearch] = useState('')
   const [form, setForm] = useState(initialForm)
-  const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-
-  const loadCalls = useCallback(async () => {
-    if (!user) return
-    setLoading(true)
-    const { data, error: loadError } = await supabase
-      .from('crm_activities')
-      .select('id,title,occurred_at,source,outcome,notes,metadata')
-      .eq('user_id', user.id)
-      .is('deleted_at', null)
-      .eq('type', 'call')
-      .eq('status', 'completed')
-      .order('occurred_at', { ascending: false })
-      .limit(500)
-    if (loadError) setError('Не удалось загрузить журнал звонков')
-    else setCalls((data || []) as WorkCall[])
-    setLoading(false)
-  }, [user])
-
-  useEffect(() => { void loadCalls() }, [loadCalls])
 
   const filtered = useMemo(() => calls.filter(call => {
     const metadata = call.metadata || {}
@@ -154,7 +101,6 @@ const CallsPage = () => {
   const save = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!user) return
-    setSaving(true)
     setError('')
     const occurredAt = new Date(`${form.date}T${form.time || '12:00'}`).toISOString()
     const metadata: CallMetadata = {
@@ -165,34 +111,31 @@ const CallsPage = () => {
       second_touch_at: form.second_touch_at, second_comment: form.second_comment,
     }
     const payload = {
-      user_id: user.id,
-      type: 'call',
-      status: 'completed',
       title: form.contact_name.trim() || form.phone.trim() || 'Звонок',
       occurred_at: occurredAt,
-      due_at: form.next_contact_at ? new Date(form.next_contact_at).toISOString() : null,
+      dueAt: form.next_contact_at ? new Date(form.next_contact_at).toISOString() : null,
       source: form.source || null,
       outcome: form.meeting_outcome || null,
       notes: form.comments || null,
       metadata,
     }
-    const request = editingId
-      ? supabase.from('crm_activities').update(payload).eq('id', editingId).eq('user_id', user.id)
-      : supabase.from('crm_activities').insert(payload)
-    const { error: saveError } = await request
-    setSaving(false)
-    if (saveError) {
+    try {
+      await saveCall(payload, editingId || undefined)
+    } catch {
       setError(editingId ? 'Не удалось обновить звонок' : 'Не удалось сохранить звонок')
       return
     }
     closeForm()
-    await loadCalls()
   }
 
   const remove = async (id: string) => {
     if (!user) return
-    await supabase.from('crm_activities').update({ deleted_at: new Date().toISOString() }).eq('id', id).eq('user_id', user.id)
-    setCalls(current => current.filter(call => call.id !== id))
+    setError('')
+    try {
+      await removeCall(id)
+    } catch {
+      setError('Не удалось переместить звонок в корзину')
+    }
   }
 
   const field = (key: keyof CallForm, label: string, type = 'text', placeholder = '') => (
@@ -216,7 +159,7 @@ const CallsPage = () => {
         <label className="relative min-w-0 flex-1 lg:ml-auto lg:max-w-sm"><Search className="lumi-muted absolute left-3 top-2.5 h-5 w-5" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Имя, телефон или адрес" className="lumi-control w-full rounded-xl py-2.5 pl-10 pr-4 outline-none" /></label>
       </div>
 
-      {error && <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-500">{error}</p>}
+      {(error || loadError) && <div className="flex flex-col gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-400 sm:flex-row sm:items-center sm:justify-between"><span>{error || 'Не удалось обновить журнал из облака. Показана копия с устройства.'}</span>{loadError && <button type="button" onClick={() => void refetch()} className="lumi-control inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold"><RefreshCw className="h-4 w-4" />Повторить</button>}</div>}
       {loading ? <p className="lumi-muted py-12 text-center">Загружаем журнал…</p> : filtered.length === 0 ? (
         <div className="lumi-panel lumi-muted flex flex-col items-center rounded-2xl border py-16 text-center"><Phone className="mb-3 h-12 w-12" /><p className="lumi-text font-semibold">Записей пока нет</p><p className="mt-1 text-sm">После звонка внесите результат — он попадёт в аналитику и план.</p></div>
       ) : (

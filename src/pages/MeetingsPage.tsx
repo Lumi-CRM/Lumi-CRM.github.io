@@ -1,47 +1,27 @@
-import { useState, useEffect } from 'react'
-import { Plus, Edit, Trash2, Calendar, Clock, MapPin } from 'lucide-react'
+import { useState } from 'react'
+import { Plus, Edit, Trash2, Calendar, Clock, MapPin, RefreshCw } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import NewEventForm from '../components/NewEventForm'
 import type { Event } from '../types'
+import { useEvents } from '../hooks/useEvents'
 
 const MeetingsPage = () => {
   const { user } = useAuth()
-  const [meetings, setMeetings] = useState<Event[]>([])
-  const [loading, setLoading] = useState(true)
+  const { data: events = [], isPending: loading, error: loadError, refetch, removeEvent } = useEvents(user?.id)
+  const meetings = events.filter(event => event.type === 'meeting')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingMeeting, setEditingMeeting] = useState<Event | null>(null)
-
-  const fetchMeetings = async () => {
-    if (!user) return
-    setLoading(true)
-    const { data } = await supabase.from('events').select('*').eq('user_id', user.id).is('deleted_at', null).eq('type', 'meeting')
-    if (data) {
-      const mapped = data.map(e => ({
-        ...e,
-        userId: e.user_id,
-        eventDate: e.event_date,
-        eventTime: e.event_time,
-        isFavorite: e.is_favorite,
-        isCompleted: e.is_completed,
-        relatedClientId: e.related_client_id,
-        relatedClientType: e.related_client_type,
-        relatedPropertyId: e.related_property_id
-      }))
-      setMeetings(mapped)
-    }
-    setLoading(false)
-  }
-
-  useEffect(() => {
-    fetchMeetings()
-  }, [user])
+  const [actionError, setActionError] = useState('')
 
   const deleteMeeting = async (id: string) => {
     if (!user) return
-    await supabase.from('events').update({ deleted_at: new Date().toISOString() }).eq('id', id).eq('user_id', user.id)
-    fetchMeetings()
+    setActionError('')
+    try {
+      await removeEvent(id)
+    } catch {
+      setActionError('Не удалось переместить встречу в корзину.')
+    }
   }
 
   const getTypeColor = (type: string) => {
@@ -82,6 +62,8 @@ const MeetingsPage = () => {
           Новое событие
         </button>
       </div>
+
+      {(actionError || loadError) && <div className="flex flex-col gap-3 rounded-xl border border-red-700/40 bg-red-950/20 px-4 py-3 text-sm text-red-300 sm:flex-row sm:items-center sm:justify-between"><span>{actionError || 'Не удалось обновить календарь из облака. Показана копия с устройства.'}</span>{loadError && <button type="button" onClick={() => void refetch()} className="lumi-control inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 font-semibold"><RefreshCw className="h-4 w-4" />Повторить</button>}</div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6 flex-1 content-start">
         {meetings.map((meeting, i) => {
@@ -160,7 +142,6 @@ const MeetingsPage = () => {
         onClose={() => {
         setIsModalOpen(false)
         setEditingMeeting(null)
-        fetchMeetings()
       }}
         defaultType="meeting"
         editData={editingMeeting}
