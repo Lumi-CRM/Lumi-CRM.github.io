@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
-import { CrmOverview, getCrmOverview } from '../lib/crm'
+import { useCallback } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { useAuth } from '../context/AuthContext'
+import { type CrmOverview, getCrmOverview } from '../lib/crm'
+import { crmQueryKeys } from '../lib/queryClient'
 
 const initialValue: CrmOverview = {
   owners: 0,
@@ -13,28 +16,29 @@ const initialValue: CrmOverview = {
 }
 
 export function useCrmOverview(enabled: boolean) {
-  const [data, setData] = useState<CrmOverview>(initialValue)
-  const [loading, setLoading] = useState(enabled)
-  const [error, setError] = useState<string | null>(null)
+  const { user } = useAuth()
+  const {
+    data,
+    error: queryError,
+    isPending,
+    refetch,
+  } = useQuery({
+    queryKey: crmQueryKeys.overview(user?.id || 'anonymous'),
+    queryFn: () => getCrmOverview(user!.id),
+    enabled: enabled && Boolean(user),
+  })
 
   const reload = useCallback(async () => {
-    if (!enabled) return
-    setLoading(true)
-    setError(null)
+    if (!enabled || !user) return
+    await refetch()
+  }, [enabled, refetch, user])
 
-    try {
-      setData(await getCrmOverview())
-    } catch (requestError) {
-      console.error('Failed to load CRM overview:', requestError)
-      setError('Облако сейчас не ответило. Локальные данные остаются на устройстве; нажмите «Обновить», когда связь восстановится.')
-    } finally {
-      setLoading(false)
-    }
-  }, [enabled])
-
-  useEffect(() => {
-    void reload()
-  }, [reload])
-
-  return { data, loading, error, reload }
+  return {
+    data: data ?? initialValue,
+    loading: isPending && enabled,
+    error: queryError
+      ? 'Облако сейчас не ответило. Локальные данные остаются на устройстве; нажмите «Обновить», когда связь восстановится.'
+      : null,
+    reload,
+  }
 }

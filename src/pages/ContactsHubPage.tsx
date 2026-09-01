@@ -1,27 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { CalendarClock, ChevronRight, Mail, Plus, RefreshCw, Search, Star, Users } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { supabase } from '../lib/supabase'
+import { useContacts } from '../hooks/useContacts'
+import type { ContactRole, ContactSummary } from '../lib/contacts'
 import AnchoredPopover from '../components/AnchoredPopover'
 import BuyerForm from '../components/BuyerForm'
 import OwnerForm from '../components/OwnerForm'
 
-type ContactRole = 'seller' | 'buyer' | 'landlord' | 'tenant'
 type ContactFilter = 'all' | ContactRole
-
-type ContactSummary = {
-  id: string
-  firstName: string
-  lastName: string
-  middleName: string
-  phone: string
-  email: string
-  roles: ContactRole[]
-  source?: string
-  nextContactDate?: string
-  isFavorite: boolean
-}
 
 const roleOptions: Array<{ id: ContactRole; label: string; shortLabel: string }> = [
   { id: 'seller', label: 'Собственник', shortLabel: 'Собственники' },
@@ -39,16 +26,6 @@ const roleRoute: Record<ContactRole, string> = {
 
 const roleLabel = new Map(roleOptions.map(item => [item.id, item.label]))
 
-const inferRoles = (row: Record<string, any>): ContactRole[] => {
-  const result = new Set<ContactRole>()
-  for (const role of row.roles || []) {
-    if (roleOptions.some(item => item.id === role)) result.add(role as ContactRole)
-  }
-  if (row.type === 'seller') result.add('seller')
-  if (row.type === 'buyer') result.add('buyer')
-  return Array.from(result)
-}
-
 const fullName = (contact: ContactSummary) => [contact.lastName, contact.firstName, contact.middleName].filter(Boolean).join(' ') || 'Без имени'
 
 const formatContactDate = (value?: string) => {
@@ -61,57 +38,12 @@ const ContactsHubPage = () => {
   const { user } = useAuth()
   const navigate = useNavigate()
   const addButtonRef = useRef<HTMLButtonElement>(null)
-  const [contacts, setContacts] = useState<ContactSummary[]>([])
+  const { data: contacts = [], isPending: loading, error: loadError, refetch, invalidate } = useContacts(user?.id)
   const [filter, setFilter] = useState<ContactFilter>('all')
   const [query, setQuery] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [newRole, setNewRole] = useState<ContactRole | null>(null)
-
-  const load = useCallback(async () => {
-    if (!user) return
-    setLoading(true)
-    setError('')
-    try {
-      const { data, error: loadError } = await supabase
-        .from('clients')
-        .select('id,type,first_name,last_name,middle_name,phone,email,roles,source,next_contact_at,is_favorite')
-        .eq('user_id', user.id)
-        .is('deleted_at', null)
-        .order('created_at', { ascending: false })
-      if (loadError) throw loadError
-      setContacts((data || []).map(row => ({
-        id: row.id,
-        firstName: row.first_name || '',
-        lastName: row.last_name || '',
-        middleName: row.middle_name || '',
-        phone: row.phone || '',
-        email: row.email || '',
-        roles: inferRoles(row),
-        source: row.source || undefined,
-        nextContactDate: row.next_contact_at || undefined,
-        isFavorite: Boolean(row.is_favorite),
-      })))
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Не удалось загрузить контакты.')
-    } finally {
-      setLoading(false)
-    }
-  }, [user])
-
-  useEffect(() => {
-    void load()
-    const refresh = () => void load()
-    window.addEventListener('online', refresh)
-    window.addEventListener('lumicrm:data-synced', refresh)
-    window.addEventListener('lumicrm:workspace-refreshed', refresh)
-    return () => {
-      window.removeEventListener('online', refresh)
-      window.removeEventListener('lumicrm:data-synced', refresh)
-      window.removeEventListener('lumicrm:workspace-refreshed', refresh)
-    }
-  }, [load])
+  const error = loadError instanceof Error ? loadError.message : loadError ? 'Не удалось загрузить контакты.' : ''
 
   const counts = useMemo(() => Object.fromEntries(roleOptions.map(role => [role.id, contacts.filter(contact => contact.roles.includes(role.id)).length])) as Record<ContactRole, number>, [contacts])
 
@@ -136,7 +68,7 @@ const ContactsHubPage = () => {
 
   const closeCreateForm = () => {
     setNewRole(null)
-    void load()
+    void invalidate()
   }
 
   return (
@@ -167,7 +99,7 @@ const ContactsHubPage = () => {
         </div>
       </section>
 
-      {error && <div className="flex flex-col gap-3 rounded-xl border border-red-800/50 bg-red-950/25 px-4 py-3 text-sm text-red-300 sm:flex-row sm:items-center sm:justify-between"><span>Не удалось загрузить контакты: {error}</span><button type="button" onClick={() => void load()} className="lumi-control inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 font-semibold"><RefreshCw className="h-4 w-4" />Повторить</button></div>}
+      {error && <div className="flex flex-col gap-3 rounded-xl border border-red-800/50 bg-red-950/25 px-4 py-3 text-sm text-red-300 sm:flex-row sm:items-center sm:justify-between"><span>Не удалось загрузить контакты: {error}</span><button type="button" onClick={() => void refetch()} className="lumi-control inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 font-semibold"><RefreshCw className="h-4 w-4" />Повторить</button></div>}
 
       {loading && contacts.length === 0 ? (
         <div className="lumi-muted py-20 text-center">Загружаем контакты…</div>

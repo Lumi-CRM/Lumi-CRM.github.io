@@ -93,7 +93,6 @@ const Dashboard = ({ children }: DashboardProps) => {
       window.clearTimeout(timer)
       timer = window.setTimeout(() => {
         setSyncRevision(value => value + 1)
-        if (isHome) void reload()
       }, 350)
     }
     window.addEventListener('lumicrm:data-synced', refreshAfterSync)
@@ -103,7 +102,7 @@ const Dashboard = ({ children }: DashboardProps) => {
       window.removeEventListener('lumicrm:data-synced', refreshAfterSync)
       window.removeEventListener('lumicrm:remote-data-changed', refreshAfterSync)
     }
-  }, [isHome, reload])
+  }, [])
 
   useEffect(() => {
     const idleWindow = window as Window & { requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number; cancelIdleCallback?: (handle: number) => void }
@@ -159,9 +158,10 @@ const Dashboard = ({ children }: DashboardProps) => {
   }
 
   const handleComplete = async (kind: 'task' | 'event', id: string) => {
+    if (!user) return
     setCompletingId(id)
     try {
-      await completeOverviewItem(kind, id)
+      await completeOverviewItem(kind, id, user.id)
       await reload()
     } finally {
       setCompletingId(null)

@@ -105,18 +105,20 @@ const emptyOverview: CrmOverview = {
   analytics: { months: makePeriods().months, periods: makePeriods(), propertyTypes: [], totalDealVolume: 0, totalAgencyIncome: 0, totalAgentIncome: 0 },
 }
 
-export async function getCrmOverview(): Promise<CrmOverview> {
+export async function getCrmOverview(userId: string): Promise<CrmOverview> {
   const [clients, properties, tasks, events, deals, financeActivities] = await Promise.all([
-    supabase.from('clients').select('id,type,roles,mortgage_status,created_at').is('deleted_at', null),
+    supabase.from('clients').select('id,type,roles,mortgage_status,created_at').eq('user_id', userId).is('deleted_at', null),
     supabase
       .from('properties')
       .select('id,address,price,status,property_type,listing_type,created_at')
+      .eq('user_id', userId)
       .is('deleted_at', null)
       .neq('status', 'archived')
       .order('created_at', { ascending: false }),
     supabase
       .from('tasks')
       .select('id,title,due_date,due_time,priority,status,is_completed')
+      .eq('user_id', userId)
       .is('deleted_at', null)
       .eq('is_completed', false)
       .order('due_date', { ascending: true, nullsFirst: false })
@@ -124,12 +126,13 @@ export async function getCrmOverview(): Promise<CrmOverview> {
     supabase
       .from('events')
       .select('id,type,title,event_date,event_time,location,is_completed')
+      .eq('user_id', userId)
       .is('deleted_at', null)
       .eq('is_completed', false)
       .order('event_date', { ascending: true })
       .limit(8),
-    supabase.from('deals').select('id,status,price,created_at').is('deleted_at', null),
-    supabase.from('crm_activities').select('external_key,metadata').eq('type', 'note').ilike('external_key', 'deal-finance:%').is('deleted_at', null),
+    supabase.from('deals').select('id,status,price,created_at').eq('user_id', userId).is('deleted_at', null),
+    supabase.from('crm_activities').select('external_key,metadata').eq('user_id', userId).eq('type', 'note').ilike('external_key', 'deal-finance:%').is('deleted_at', null),
   ])
 
   const firstError = [clients.error, properties.error, tasks.error, events.error, deals.error, financeActivities.error].find(Boolean)
@@ -215,12 +218,13 @@ export async function getCrmOverview(): Promise<CrmOverview> {
   }
 }
 
-export async function completeOverviewItem(type: 'task' | 'event', id: string) {
+export async function completeOverviewItem(type: 'task' | 'event', id: string, userId: string) {
   const table = type === 'task' ? 'tasks' : 'events'
   const { error } = await supabase
     .from(table)
     .update(type === 'task' ? { is_completed: true, status: 'done' } : { is_completed: true })
     .eq('id', id)
+    .eq('user_id', userId)
 
   if (error) throw error
 }

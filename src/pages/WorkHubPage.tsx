@@ -51,10 +51,11 @@ const TodayView = () => {
   ].sort((left, right) => `${left.date || today} ${left.time || ''}`.localeCompare(`${right.date || today} ${right.time || ''}`)), [data.events, data.tasks, today])
 
   const complete = async (item: (typeof agenda)[number]) => {
+    if (!user) return
     setCompletingId(`${item.kind}-${item.id}`)
     try {
-      await completeOverviewItem(item.kind, item.id)
-      if (user) await syncNativeReminders(user.id).catch(() => undefined)
+      await completeOverviewItem(item.kind, item.id, user.id)
+      await syncNativeReminders(user.id).catch(() => undefined)
       await reload()
     } finally {
       setCompletingId('')
