@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Building2, Contact, FileText, Home, MapPin, Settings2, WalletCards, X } from 'lucide-react'
-import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import Modal from './Modal'
 import type { Client } from '../types'
 import { getErrorMessage } from '../lib/errors'
+import { useClientRecords, useClientRequirement } from '../hooks/useClientRecords'
+import type { ContactRole } from '../lib/contacts'
 
 interface BuyerFormProps {
   isOpen: boolean
@@ -60,7 +61,8 @@ const BuyerForm = ({ isOpen, onClose, buyer, defaultPurpose = 'sale' }: BuyerFor
   const [section, setSection] = useState('contact')
   const [form, setForm] = useState<FormData>(emptyForm(defaultPurpose))
   const [newLocation, setNewLocation] = useState('')
-  const [saving, setSaving] = useState(false)
+  const { saveBuyer, mutationPending: saving } = useClientRecords(user?.id)
+  const requirementQuery = useClientRequirement(user?.id, buyer?.id, form.purpose)
 
   const update = <K extends keyof FormData>(key: K, value: FormData[K]) => setForm(current => ({ ...current, [key]: value }))
 
@@ -71,50 +73,51 @@ const BuyerForm = ({ isOpen, onClose, buyer, defaultPurpose = 'sale' }: BuyerFor
     const purpose: 'sale' | 'rent' = buyer.roles?.includes('tenant') ? 'rent' : defaultPurpose
     setForm({ ...emptyForm(purpose), purpose, firstName: buyer.firstName || '', lastName: buyer.lastName || '', middleName: buyer.middleName || '', birthDate: buyer.birthDate || '', birthdayReminder: buyer.birthdayReminder || false, phone: buyer.phone || '+7', contactComment: buyer.contactComment || '', email: buyer.email || '', source: buyer.source || '', status: buyer.status || 'new', firstContactDate: buyer.firstContactDate || '', privateNotes: buyer.description || '', propertyType: buyer.propertyType || 'Квартира', priceMax: String(buyer.budget ?? ''), rooms: String(buyer.rooms ?? ''), locations: buyer.preferredDistricts || [], mortgageNeeded: buyer.mortgageStatus || false })
 
-    let active = true
-    void supabase.from('client_requirements').select('*').eq('client_id', buyer.id).eq('purpose', purpose).maybeSingle().then(({ data }) => {
-      if (!active || !data) return
-      const deal = data.deal_terms || {}; const object = data.object_criteria || {}; const building = data.building_criteria || {}; const service = data.service_fields || {}; const linked = data.linked_cards || {}
-      setForm(current => ({ ...current,
-        requestType: data.request_type || '', considersNewBuild: Boolean(data.considers_new_build), propertyType: data.property_type || 'Квартира',
-        priceMin: String(data.price_min ?? ''), priceMax: String(data.price_max ?? ''), totalAreaMin: String(data.total_area_min ?? ''), totalAreaMax: String(data.total_area_max ?? ''), livingAreaMin: String(data.living_area_min ?? ''), livingAreaMax: String(data.living_area_max ?? ''), kitchenAreaMin: String(data.kitchen_area_min ?? ''), kitchenAreaMax: String(data.kitchen_area_max ?? ''), rooms: (data.rooms || []).join(', '), floorMin: String(data.floor_min ?? ''), floorMax: String(data.floor_max ?? ''), locations: Array.isArray(data.locations) ? data.locations : [],
-        sharedOnly: Boolean(deal.shared_only), mortgageNeeded: Boolean(deal.mortgage_needed), clientPaysCommission: Boolean(deal.client_pays_commission), sharedCommission: Boolean(deal.shared_commission), rentalDuration: deal.rental_duration || 'long_term', utilitiesIncluded: Boolean(deal.utilities_included),
-        balcony: object.balcony || '', apartmentType: object.apartment_type || '', notFirst: Boolean(object.not_first), notLast: Boolean(object.not_last), basement: Boolean(object.basement), socle: Boolean(object.socle), attic: Boolean(object.attic), apartmentLevels: String(object.apartment_levels ?? ''), repair: object.repair || '', windowView: object.window_view || '', bathroom: object.bathroom || '', furniture: object.furniture || '', initialAddress: object.initial_address || 'Курская обл.', maxDistance: String(object.max_distance ?? ''), locationDistrict: object.location_district || '',
-        developer: building.developer || '', complexName: building.complex_name || '', completionQuarter: building.completion_quarter || '', completionYear: String(building.completion_year ?? ''), houseType: building.house_type || '', newBuilding: Boolean(building.new_building), elevator: building.elevator || '',
-        excludeMls: Boolean(service.exclude_mls), transferReason: service.transfer_reason || '', meetingHeld: service.meeting_held || '', agentReward: service.agent_reward || '', agencyReward: service.agency_reward || '', executorReward: service.executor_reward || '', clientRole: service.client_role || '', serviceContract: service.service_contract || '', contractCity: service.contract_city || '', contractDate: service.contract_date || '', occupantsCount: String(service.occupants_count ?? ''), ownershipType: service.ownership_type || '', ownersCount: String(service.owners_count ?? ''), encumbrance: service.encumbrance || '', privateNotes: data.private_notes || '', publicNotes: data.public_notes || '',
-        linkedValuationId: linked.valuation || '', linkedInsuranceId: linked.insurance || '', linkedMortgageId: linked.mortgage || '', linkedDealId: linked.deal || '', linkedBuyerId: linked.buyer || '', linkedSellerId: linked.seller || '',
-      }))
-    })
-    return () => { active = false }
   }, [buyer, defaultPurpose, isOpen])
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault(); if (!user) return; setSaving(true)
-    try {
-      const role = form.purpose === 'rent' ? 'tenant' : 'buyer'
-      const roles = Array.from(new Set([...(buyer?.roles || []), role]))
-      const clientPayload = { first_name: form.firstName.trim(), last_name: form.lastName.trim(), middle_name: form.middleName.trim() || null, birth_date: form.birthDate || null, birthday_reminder: form.birthdayReminder, phone: form.phone.trim(), contact_comment: form.contactComment.trim() || null, email: form.email.trim() || null, source: form.source || null, first_contact_date: form.firstContactDate || null, status: form.status, description: form.privateNotes || null, property_type: form.propertyType, preferred_districts: form.locations, mortgage_status: form.mortgageNeeded, budget: numberOrNull(form.priceMax), rooms: numbersFromList(form.rooms)[0] || null, roles, updated_at: new Date().toISOString() }
-      let clientId = buyer?.id
-      if (clientId) {
-        const { error } = await supabase.from('clients').update(clientPayload).eq('id', clientId).eq('user_id', user.id); if (error) throw error
-      } else {
-        const { data, error } = await supabase.from('clients').insert({ ...clientPayload, user_id: user.id, type: 'buyer', tags: [], is_favorite: false }).select('id').single(); if (error) throw error; clientId = data.id
-      }
+  useEffect(() => {
+    const data = requirementQuery.data as Record<string, any> | null | undefined
+    if (!isOpen || !buyer || !data) return
+    const deal = data.deal_terms || {}; const object = data.object_criteria || {}; const building = data.building_criteria || {}; const service = data.service_fields || {}; const linked = data.linked_cards || {}
+    setForm(current => ({ ...current,
+      requestType: data.request_type || '', considersNewBuild: Boolean(data.considers_new_build), propertyType: data.property_type || 'Квартира',
+      priceMin: String(data.price_min ?? ''), priceMax: String(data.price_max ?? ''), totalAreaMin: String(data.total_area_min ?? ''), totalAreaMax: String(data.total_area_max ?? ''), livingAreaMin: String(data.living_area_min ?? ''), livingAreaMax: String(data.living_area_max ?? ''), kitchenAreaMin: String(data.kitchen_area_min ?? ''), kitchenAreaMax: String(data.kitchen_area_max ?? ''), rooms: (data.rooms || []).join(', '), floorMin: String(data.floor_min ?? ''), floorMax: String(data.floor_max ?? ''), locations: Array.isArray(data.locations) ? data.locations : [],
+      sharedOnly: Boolean(deal.shared_only), mortgageNeeded: Boolean(deal.mortgage_needed), clientPaysCommission: Boolean(deal.client_pays_commission), sharedCommission: Boolean(deal.shared_commission), rentalDuration: deal.rental_duration || 'long_term', utilitiesIncluded: Boolean(deal.utilities_included),
+      balcony: object.balcony || '', apartmentType: object.apartment_type || '', notFirst: Boolean(object.not_first), notLast: Boolean(object.not_last), basement: Boolean(object.basement), socle: Boolean(object.socle), attic: Boolean(object.attic), apartmentLevels: String(object.apartment_levels ?? ''), repair: object.repair || '', windowView: object.window_view || '', bathroom: object.bathroom || '', furniture: object.furniture || '', initialAddress: object.initial_address || 'Курская обл.', maxDistance: String(object.max_distance ?? ''), locationDistrict: object.location_district || '',
+      developer: building.developer || '', complexName: building.complex_name || '', completionQuarter: building.completion_quarter || '', completionYear: String(building.completion_year ?? ''), houseType: building.house_type || '', newBuilding: Boolean(building.new_building), elevator: building.elevator || '',
+      excludeMls: Boolean(service.exclude_mls), transferReason: service.transfer_reason || '', meetingHeld: service.meeting_held || '', agentReward: service.agent_reward || '', agencyReward: service.agency_reward || '', executorReward: service.executor_reward || '', clientRole: service.client_role || '', serviceContract: service.service_contract || '', contractCity: service.contract_city || '', contractDate: service.contract_date || '', occupantsCount: String(service.occupants_count ?? ''), ownershipType: service.ownership_type || '', ownersCount: String(service.owners_count ?? ''), encumbrance: service.encumbrance || '', privateNotes: data.private_notes || '', publicNotes: data.public_notes || '',
+      linkedValuationId: linked.valuation || '', linkedInsuranceId: linked.insurance || '', linkedMortgageId: linked.mortgage || '', linkedDealId: linked.deal || '', linkedBuyerId: linked.buyer || '', linkedSellerId: linked.seller || '',
+    }))
+  }, [buyer, isOpen, requirementQuery.data])
 
-      const { error } = await supabase.from('client_requirements').upsert({
-        user_id: user.id, client_id: clientId, purpose: form.purpose, request_type: form.requestType || null,
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault(); if (!user) return
+    try {
+      const role: ContactRole = form.purpose === 'rent' ? 'tenant' : 'buyer'
+      const roles: ContactRole[] = Array.from(new Set<ContactRole>([...(buyer?.roles || []).filter((item): item is ContactRole => ['buyer', 'seller', 'landlord', 'tenant'].includes(item)), role]))
+      const clientInput = {
+        type: 'buyer' as const,
+        firstName: form.firstName.trim(), lastName: form.lastName.trim(), middleName: form.middleName.trim() || null,
+        birthDate: form.birthDate || null, birthdayReminder: form.birthdayReminder, phone: form.phone.trim(),
+        contactComment: form.contactComment.trim() || null, email: form.email.trim() || null, source: form.source || null,
+        firstContactDate: form.firstContactDate || null, status: form.status, description: form.privateNotes || null,
+        propertyType: form.propertyType, preferredDistricts: form.locations, mortgageStatus: form.mortgageNeeded,
+        budget: numberOrNull(form.priceMax), rooms: numbersFromList(form.rooms)[0] || null, roles, tags: buyer?.tags || [],
+      }
+      const requirement = {
+        purpose: form.purpose, request_type: form.requestType || null,
         property_type: form.propertyType, considers_new_build: form.considersNewBuild, price_min: numberOrNull(form.priceMin), price_max: numberOrNull(form.priceMax), total_area_min: numberOrNull(form.totalAreaMin), total_area_max: numberOrNull(form.totalAreaMax), living_area_min: numberOrNull(form.livingAreaMin), living_area_max: numberOrNull(form.livingAreaMax), kitchen_area_min: numberOrNull(form.kitchenAreaMin), kitchen_area_max: numberOrNull(form.kitchenAreaMax), rooms: numbersFromList(form.rooms), floor_min: numberOrNull(form.floorMin), floor_max: numberOrNull(form.floorMax), locations: form.locations,
         deal_terms: { shared_only: form.sharedOnly, mortgage_needed: form.mortgageNeeded, client_pays_commission: form.clientPaysCommission, shared_commission: form.sharedCommission, rental_duration: form.rentalDuration, utilities_included: form.utilitiesIncluded },
         object_criteria: { balcony: form.balcony, apartment_type: form.apartmentType, not_first: form.notFirst, not_last: form.notLast, basement: form.basement, socle: form.socle, attic: form.attic, apartment_levels: numberOrNull(form.apartmentLevels), repair: form.repair, window_view: form.windowView, bathroom: form.bathroom, furniture: form.furniture, initial_address: form.initialAddress, max_distance: numberOrNull(form.maxDistance), location_district: form.locationDistrict },
         building_criteria: { developer: form.developer, complex_name: form.complexName, completion_quarter: form.completionQuarter, completion_year: numberOrNull(form.completionYear), house_type: form.houseType, new_building: form.newBuilding, elevator: form.elevator },
         service_fields: { status: form.status, exclude_mls: form.excludeMls, transfer_reason: form.transferReason, meeting_held: form.meetingHeld, agent_reward: form.agentReward, agency_reward: form.agencyReward, executor_reward: form.executorReward, client_role: form.clientRole, service_contract: form.serviceContract, contract_city: form.contractCity, contract_date: form.contractDate || null, occupants_count: numberOrNull(form.occupantsCount), ownership_type: form.ownershipType, owners_count: numberOrNull(form.ownersCount), encumbrance: form.encumbrance },
         linked_cards: { valuation: form.linkedValuationId, insurance: form.linkedInsuranceId, mortgage: form.linkedMortgageId, deal: form.linkedDealId, buyer: form.linkedBuyerId, seller: form.linkedSellerId }, private_notes: form.privateNotes || null, public_notes: form.publicNotes || null, updated_at: new Date().toISOString(),
-      }, { onConflict: 'client_id,purpose' })
-      if (error) throw error
+      }
+      await saveBuyer(clientInput, requirement, buyer?.id, requirementQuery.data?.id)
       onClose()
     } catch (error) {
       console.error('Client requirement save failed:', error); alert(`Не удалось сохранить заявку: ${getErrorMessage(error, 'проверьте подключение и повторите')}`)
-    } finally { setSaving(false) }
+    }
   }
 
   const tabs = [{ id: 'contact', label: 'Контакты', icon: Contact }, { id: 'deal', label: 'Сделка', icon: WalletCards }, { id: 'object', label: 'Объект', icon: Home }, { id: 'building', label: 'Здание', icon: Building2 }, { id: 'location', label: 'Локация', icon: MapPin }, { id: 'service', label: 'Служебные', icon: Settings2 }]

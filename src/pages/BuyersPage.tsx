@@ -1,13 +1,13 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Plus, Edit, Trash2, Phone, Mail, Search, Star, X } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { Client } from '../types'
+import type { Client } from '../types'
 import BuyerForm from '../components/BuyerForm'
 import ActivityTimeline from '../components/ActivityTimeline'
 import EntityFilesPanel from '../components/EntityFilesPanel'
-import { moveToTrash } from '../lib/trash'
+import { useClientRecords } from '../hooks/useClientRecords'
+import { getErrorMessage } from '../lib/errors'
 
 interface BuyersPageProps {
   mode?: 'sale' | 'rent'
@@ -16,78 +16,23 @@ interface BuyersPageProps {
 const BuyersPage = ({ mode = 'sale' }: BuyersPageProps) => {
   const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [buyers, setBuyers] = useState<Client[]>([])
+  const clientQuery = useClientRecords(user?.id)
+  const buyers = useMemo(() => (clientQuery.data || []).filter(client => mode === 'rent'
+    ? client.roles?.includes('tenant')
+    : client.roles?.includes('buyer')), [clientQuery.data, mode])
   const [selectedBuyer, setSelectedBuyer] = useState<Client | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingBuyer, setEditingBuyer] = useState<Client | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState('')
-
-  const fetchData = useCallback(async () => {
-    if (!user) return
-    setLoading(true)
-    setError('')
-    const { data, error: loadError } = await supabase
-      .from('clients')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('type', 'buyer')
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false })
-
-    if (loadError) {
-      setError(loadError.message)
-      setLoading(false)
-      return
-    }
-
-    if (data) {
-      const mappedBuyers = data.map(c => ({
-        ...c,
-        id: c.id,
-        type: c.type,
-        firstName: c.first_name,
-        lastName: c.last_name,
-        middleName: c.middle_name,
-        phone: c.phone,
-        email: c.email,
-        userId: c.user_id,
-        preferredDistricts: c.preferred_districts,
-        mortgageStatus: c.mortgage_status,
-        paymentMethod: c.payment_method,
-        propertyType: c.property_type,
-        isFavorite: c.is_favorite,
-        birthDate: c.birth_date,
-        birthdayReminder: c.birthday_reminder,
-        contactComment: c.contact_comment,
-        roles: c.roles || [],
-        source: c.source,
-        firstContactDate: c.first_contact_date,
-        lastContactDate: c.last_contact_date,
-        nextContactDate: c.next_contact_at,
-        status: c.status,
-        description: c.description,
-        tags: c.tags || [],
-        createdAt: c.created_at,
-        updatedAt: c.updated_at,
-        photos: [],
-        documents: [],
-        notes: []
-      }))
-      const visibleBuyers = mappedBuyers.filter(client => mode === 'rent'
-        ? client.roles?.includes('tenant')
-        : !client.roles?.includes('tenant') || client.roles?.includes('buyer'))
-      setBuyers(visibleBuyers)
-      const requestedClientId = searchParams.get('client')
-      setSelectedBuyer(current => visibleBuyers.find(client => client.id === (requestedClientId || current?.id)) || null)
-    }
-    setLoading(false)
-  }, [mode, searchParams, user])
+  const [actionError, setActionError] = useState('')
+  const loading = clientQuery.isPending
+  const loadError = clientQuery.error instanceof Error ? clientQuery.error.message : clientQuery.error ? 'Не удалось загрузить контакты.' : ''
+  const error = actionError || loadError
 
   useEffect(() => {
-    void fetchData()
-  }, [fetchData])
+    const requestedClientId = searchParams.get('client')
+    setSelectedBuyer(current => buyers.find(client => client.id === (requestedClientId || current?.id)) || null)
+  }, [buyers, searchParams])
 
   const filteredBuyers = buyers.filter(buyer =>
     (buyer.firstName || '').toLowerCase().includes((searchQuery || '').toLowerCase()) ||
@@ -192,9 +137,9 @@ const BuyersPage = ({ mode = 'sale' }: BuyersPageProps) => {
               <div className="flex gap-2">
                 <button
                   onClick={async () => {
-                    const { error: updateError } = await supabase.from('clients').update({ is_favorite: !selectedBuyer.isFavorite }).eq('id', selectedBuyer.id).eq('user_id', user!.id)
-                    if (updateError) setError(updateError.message)
-                    else await fetchData()
+                    setActionError('')
+                    try { await clientQuery.toggleFavorite(selectedBuyer) }
+                    catch (updateError) { setActionError(getErrorMessage(updateError, 'Не удалось обновить избранное.')) }
                   }}
                   className={`p-3 rounded-xl hover:bg-gray-100 ${selectedBuyer.isFavorite ? 'text-yellow-500' : 'text-gray-400'}`}
                 >
@@ -209,10 +154,9 @@ const BuyersPage = ({ mode = 'sale' }: BuyersPageProps) => {
                 <button
                   onClick={async () => {
                     try {
-                      await moveToTrash('clients', selectedBuyer.id, user!.id)
+                      await clientQuery.removeClient(selectedBuyer.id)
                       setSelectedBuyer(null)
-                      await fetchData()
-                    } catch (deleteError) { setError(deleteError instanceof Error ? deleteError.message : 'Не удалось переместить клиента в корзину.') }
+                    } catch (deleteError) { setActionError(getErrorMessage(deleteError, 'Не удалось переместить клиента в корзину.')) }
                   }}
                   className="p-3 rounded-xl hover:bg-red-50"
                 >
@@ -294,7 +238,7 @@ const BuyersPage = ({ mode = 'sale' }: BuyersPageProps) => {
 
       <BuyerForm
         isOpen={isModalOpen}
-        onClose={() => { setIsModalOpen(false); setEditingBuyer(null); void fetchData() }}
+        onClose={() => { setIsModalOpen(false); setEditingBuyer(null) }}
         buyer={editingBuyer}
         defaultPurpose={mode}
       />

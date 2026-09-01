@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { BellRing, Building2, Contact, MapPin, X } from 'lucide-react'
-import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import Modal from './Modal'
 import type { Client } from '../types'
+import { useClientRecords } from '../hooks/useClientRecords'
+import { usePropertyCatalog } from '../hooks/usePropertyCatalog'
+import type { ContactRole } from '../lib/contacts'
+import { getErrorMessage } from '../lib/errors'
 
 interface OwnerFormProps {
   isOpen: boolean
@@ -48,32 +51,22 @@ const inputClass = 'w-full rounded-xl border border-gray-300 bg-white px-4 py-3 
 
 const OwnerForm = ({ isOpen, onClose, owner, mode = 'sale' }: OwnerFormProps) => {
   const { user } = useAuth()
-  const role = mode === 'rent' ? 'landlord' : 'seller'
+  const role: ContactRole = mode === 'rent' ? 'landlord' : 'seller'
   const personLabel = mode === 'rent' ? 'арендодателя' : 'собственника'
   const [formData, setFormData] = useState<OwnerFormData>(emptyForm)
   const [newTag, setNewTag] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [properties, setProperties] = useState<Array<{ id: string; address: string; owner_id: string | null; listing_type: string | null }>>([])
   const [propertyId, setPropertyId] = useState('')
   const [propertyAddress, setPropertyAddress] = useState('')
+  const { saveOwner, mutationPending: saving } = useClientRecords(user?.id)
+  const propertyQuery = usePropertyCatalog(user?.id)
+  const properties = useMemo(() => (propertyQuery.data?.properties || []).filter(property => property.listingType === mode), [mode, propertyQuery.data])
 
   useEffect(() => {
-    if (!isOpen || !user) return
-    const loadProperties = async () => {
-      const { data } = await supabase
-        .from('properties')
-        .select('id,address,owner_id,listing_type')
-        .eq('user_id', user.id)
-        .eq('listing_type', mode)
-        .order('created_at', { ascending: false })
-      const items = data || []
-      setProperties(items)
-      const linked = owner ? items.find(item => item.owner_id === owner.id) : undefined
-      setPropertyId(linked?.id || '')
-      setPropertyAddress(linked?.address || '')
-    }
-    void loadProperties()
-  }, [isOpen, mode, owner, user])
+    if (!isOpen || !owner) return
+    const linked = properties.find(item => item.ownerId === owner.id)
+    setPropertyId(linked?.id || '')
+    setPropertyAddress(linked?.address || '')
+  }, [isOpen, owner, properties])
 
   useEffect(() => {
     if (!owner) {
@@ -106,72 +99,34 @@ const OwnerForm = ({ isOpen, onClose, owner, mode = 'sale' }: OwnerFormProps) =>
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
     if (!user) return
-    setSaving(true)
-
-    const payload = {
-      first_name: formData.firstName.trim(),
-      last_name: formData.lastName.trim(),
-      middle_name: formData.middleName.trim() || null,
-      birth_date: formData.birthDate || null,
-      birthday_reminder: formData.birthdayReminder,
-      phone: formData.phone.trim(),
-      contact_comment: formData.contactComment.trim() || null,
-      email: formData.email.trim() || null,
-      source: formData.source || null,
-      first_contact_date: formData.firstContactDate || null,
-      status: formData.status,
-      description: formData.description.trim() || null,
-      tags: formData.tags,
-      roles: Array.from(new Set([...(owner?.roles || []), role])),
-      updated_at: new Date().toISOString(),
-    }
 
     try {
-      const result = owner
-        ? await supabase.from('clients').update(payload).eq('id', owner.id).eq('user_id', user.id).select('id').single()
-        : await supabase.from('clients').insert({
-            ...payload,
-            user_id: user.id,
-            type: 'seller',
-            is_favorite: false,
-          }).select('id').single()
-
-      if (result.error) {
-        alert(`Не удалось сохранить собственника: ${result.error.message}`)
-        return
-      }
-
-      const ownerId = result.data?.id
-      if (ownerId && propertyId) {
-        const selectedProperty = properties.find(item => item.id === propertyId)
-        const { error: linkError } = await supabase
-          .from('properties')
-          .update({
-            owner_id: ownerId,
-            address: propertyAddress.trim() || selectedProperty?.address || 'Адрес не указан',
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', propertyId)
-          .eq('user_id', user.id)
-        if (linkError) throw linkError
-      } else if (ownerId && propertyAddress.trim()) {
-        const { error: propertyError } = await supabase.from('properties').insert({
-          user_id: user.id,
-          owner_id: ownerId,
-          address: propertyAddress.trim(),
-          status: 'available',
-          listing_type: mode,
-          tags: [],
-          is_favorite: false,
-        })
-        if (propertyError) throw propertyError
-      }
+      const roles: ContactRole[] = Array.from(new Set<ContactRole>([...(owner?.roles || []).filter((item): item is ContactRole => ['buyer', 'seller', 'landlord', 'tenant'].includes(item)), role]))
+      await saveOwner({
+        type: 'seller',
+        firstName: formData.firstName.trim(),
+        lastName: formData.lastName.trim(),
+        middleName: formData.middleName.trim() || null,
+        birthDate: formData.birthDate || null,
+        birthdayReminder: formData.birthdayReminder,
+        phone: formData.phone.trim(),
+        contactComment: formData.contactComment.trim() || null,
+        email: formData.email.trim() || null,
+        source: formData.source || null,
+        firstContactDate: formData.firstContactDate || null,
+        status: formData.status,
+        description: formData.description.trim() || null,
+        tags: formData.tags,
+        roles,
+      }, {
+        mode,
+        propertyId: propertyId || undefined,
+        propertyAddress: propertyAddress.trim() || properties.find(item => item.id === propertyId)?.address,
+      }, owner?.id)
       onClose()
     } catch (error) {
       console.error('Owner save failed:', error)
-      alert('Не удалось связаться с Supabase')
-    } finally {
-      setSaving(false)
+      alert(`Не удалось сохранить ${personLabel}: ${getErrorMessage(error, 'проверьте подключение и повторите')}`)
     }
   }
 
@@ -282,7 +237,7 @@ const OwnerForm = ({ isOpen, onClose, owner, mode = 'sale' }: OwnerFormProps) =>
               >
                 <option value="">Создать по адресу ниже</option>
                 {properties
-                  .filter(item => !item.owner_id || item.owner_id === owner?.id)
+                  .filter(item => !item.ownerId || item.ownerId === owner?.id)
                   .map(item => <option key={item.id} value={item.id}>{item.address}</option>)}
               </select>
             </label>

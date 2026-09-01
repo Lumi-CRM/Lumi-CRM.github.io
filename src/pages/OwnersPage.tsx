@@ -1,61 +1,18 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Building2, Edit, Mail, MapPin, Phone, Plus, Search, Star, Trash2, User, X } from 'lucide-react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import OwnerForm from '../components/OwnerForm'
 import EntityFilesPanel from '../components/EntityFilesPanel'
 import ActivityTimeline from '../components/ActivityTimeline'
 import type { Client } from '../types'
-import { moveToTrash } from '../lib/trash'
-
-interface LinkedProperty {
-  id: string
-  address: string
-  price: number | null
-  status: string
-  ownerId: string | null
-  listingType: string | null
-}
+import { useClientRecords } from '../hooks/useClientRecords'
+import { usePropertyCatalog } from '../hooks/usePropertyCatalog'
+import { getErrorMessage } from '../lib/errors'
 
 interface OwnersPageProps {
   mode?: 'sale' | 'rent'
 }
-
-const mapClient = (item: Record<string, any>): Client => ({
-  id: item.id,
-  userId: item.user_id,
-  type: item.type,
-  firstName: item.first_name || '',
-  lastName: item.last_name || '',
-  middleName: item.middle_name || '',
-  phone: item.phone || '',
-  email: item.email || '',
-  propertyType: item.property_type,
-  preferredDistricts: item.preferred_districts || [],
-  mortgageStatus: item.mortgage_status,
-  paymentMethod: item.payment_method,
-  budget: item.budget,
-  rooms: item.rooms,
-  tags: item.tags || [],
-  isFavorite: item.is_favorite || false,
-  createdAt: item.created_at,
-  updatedAt: item.updated_at,
-  photos: [],
-  documents: [],
-  notes: [],
-  source: item.source,
-  firstContactDate: item.first_contact_date,
-  lastContactDate: item.last_contact_date,
-  nextContactDate: item.next_contact_at,
-  birthDate: item.birth_date,
-  birthdayReminder: item.birthday_reminder,
-  contactComment: item.contact_comment,
-  roles: item.roles || [],
-  status: item.status,
-  leadTemperature: item.lead_temperature,
-  description: item.description,
-})
 
 const fullName = (owner: Client) => [owner.lastName, owner.firstName, owner.middleName].filter(Boolean).join(' ') || 'Без имени'
 
@@ -66,49 +23,23 @@ const OwnersPage = ({ mode = 'sale' }: OwnersPageProps) => {
   const role = mode === 'rent' ? 'landlord' : 'seller'
   const pageTitle = mode === 'rent' ? 'Арендодатели' : 'Собственники'
   const personLabel = mode === 'rent' ? 'арендодателя' : 'собственника'
-  const [owners, setOwners] = useState<Client[]>([])
-  const [properties, setProperties] = useState<LinkedProperty[]>([])
+  const clientQuery = useClientRecords(user?.id)
+  const propertyQuery = usePropertyCatalog(user?.id)
+  const owners = useMemo(() => (clientQuery.data || []).filter(item => item.roles?.includes(role)), [clientQuery.data, role])
+  const properties = propertyQuery.data?.properties || []
   const [selectedOwner, setSelectedOwner] = useState<Client | null>(null)
   const [query, setQuery] = useState('')
-  const [loading, setLoading] = useState(true)
   const [formOpen, setFormOpen] = useState(false)
   const [editingOwner, setEditingOwner] = useState<Client | null>(null)
-  const [error, setError] = useState('')
+  const [actionError, setActionError] = useState('')
+  const loading = clientQuery.isPending || propertyQuery.isPending
+  const queryError = clientQuery.error || propertyQuery.error
+  const error = actionError || (queryError instanceof Error ? queryError.message : queryError ? `Не удалось загрузить: ${pageTitle.toLowerCase()}` : '')
 
-  const load = useCallback(async () => {
-    if (!user) return
-    setLoading(true)
-    setError('')
-    try {
-      const [clientsResult, propertiesResult] = await Promise.all([
-        supabase.from('clients').select('*').eq('user_id', user.id).is('deleted_at', null).order('created_at', { ascending: false }),
-        supabase.from('properties').select('id,address,price,status,owner_id,listing_type').eq('user_id', user.id).is('deleted_at', null).order('created_at', { ascending: false }),
-      ])
-      if (clientsResult.error) throw clientsResult.error
-      if (propertiesResult.error) throw propertiesResult.error
-
-      const mappedOwners = (clientsResult.data || [])
-        .filter(item => (item.roles || []).includes(role) || (role === 'seller' && item.type === 'seller'))
-        .map(mapClient)
-      setOwners(mappedOwners)
-      setProperties((propertiesResult.data || []).map(item => ({
-        id: item.id,
-        address: item.address,
-        price: item.price === null ? null : Number(item.price),
-        status: item.status,
-        ownerId: item.owner_id,
-        listingType: item.listing_type,
-      })))
-      const requestedClientId = searchParams.get('client')
-      setSelectedOwner(current => mappedOwners.find(item => item.id === (requestedClientId || current?.id)) || null)
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : `Не удалось загрузить: ${pageTitle.toLowerCase()}`)
-    } finally {
-      setLoading(false)
-    }
-  }, [pageTitle, role, searchParams, user])
-
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    const requestedClientId = searchParams.get('client')
+    setSelectedOwner(current => owners.find(item => item.id === (requestedClientId || current?.id)) || null)
+  }, [owners, searchParams])
 
   const visibleOwners = useMemo(() => {
     const value = query.trim().toLowerCase()
@@ -121,19 +52,16 @@ const OwnersPage = ({ mode = 'sale' }: OwnersPageProps) => {
     : [], [mode, properties, selectedOwner])
 
   const toggleFavorite = async (owner: Client) => {
-    if (!user) return
-    const { error: updateError } = await supabase.from('clients').update({ is_favorite: !owner.isFavorite }).eq('id', owner.id).eq('user_id', user.id)
-    if (updateError) setError(updateError.message)
-    else await load()
+    setActionError('')
+    try { await clientQuery.toggleFavorite(owner) }
+    catch (updateError) { setActionError(getErrorMessage(updateError, 'Не удалось обновить избранное.')) }
   }
 
   const removeOwner = async (owner: Client) => {
-    if (!user) return
     try {
-      await moveToTrash('clients', owner.id, user.id)
-      setOwners(current => current.filter(item => item.id !== owner.id))
+      await clientQuery.removeClient(owner.id)
       setSelectedOwner(null)
-    } catch (deleteError) { setError(deleteError instanceof Error ? deleteError.message : 'Не удалось переместить клиента в корзину.') }
+    } catch (deleteError) { setActionError(getErrorMessage(deleteError, 'Не удалось переместить клиента в корзину.')) }
   }
 
   const closeDetails = () => {
@@ -239,7 +167,7 @@ const OwnersPage = ({ mode = 'sale' }: OwnersPageProps) => {
         )}
       </main>
 
-      {formOpen && <OwnerForm isOpen={formOpen} owner={editingOwner} mode={mode} onClose={() => { setFormOpen(false); setEditingOwner(null); void load() }} />}
+      {formOpen && <OwnerForm isOpen={formOpen} owner={editingOwner} mode={mode} onClose={() => { setFormOpen(false); setEditingOwner(null) }} />}
     </div>
   )
 }

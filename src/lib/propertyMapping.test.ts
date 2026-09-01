@@ -21,10 +21,35 @@ test('maps cloud property fields into the application model', () => {
   assert.equal(property.isFavorite, true)
 })
 
-test('maps a client with safe defaults for the property form', () => {
-  const client = mapClientRow({ id: 'client-1', user_id: 'user-1', type: 'seller', roles: ['seller', 'landlord'] })
+test('maps a complete client record with safe defaults', () => {
+  const client = mapClientRow({
+    id: 'client-1',
+    user_id: 'user-1',
+    type: 'seller',
+    roles: ['seller', 'landlord'],
+    budget: '7300000',
+    rooms: '2',
+    source: 'Рекомендация',
+    birth_date: '1990-04-10',
+    birthday_reminder: true,
+    lead_temperature: 'warm',
+  })
 
   assert.equal(client.type, 'seller')
   assert.deepEqual(client.roles, ['seller', 'landlord'])
+  assert.equal(client.budget, 7_300_000)
+  assert.equal(client.rooms, 2)
+  assert.equal(client.source, 'Рекомендация')
+  assert.equal(client.birthDate, '1990-04-10')
+  assert.equal(client.birthdayReminder, true)
+  assert.equal(client.leadTemperature, 'warm')
   assert.deepEqual(client.tags, [])
+})
+
+test('keeps explicit contact roles distinct and falls back to the legacy type', () => {
+  const tenant = mapClientRow({ id: 'tenant-1', user_id: 'user-1', type: 'buyer', roles: ['tenant'] })
+  const legacyBuyer = mapClientRow({ id: 'buyer-1', user_id: 'user-1', type: 'buyer' })
+
+  assert.deepEqual(tenant.roles, ['tenant'])
+  assert.deepEqual(legacyBuyer.roles, ['buyer'])
 })
