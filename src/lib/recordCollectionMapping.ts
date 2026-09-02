@@ -1,4 +1,5 @@
 import type { TrashTable } from './trash'
+import type { PropertyStatus } from '../types'
 
 type CloudRow = Record<string, unknown>
 
@@ -8,7 +9,7 @@ export type ArchivedProperty = {
   price?: number
   rooms?: number
   area?: number
-  status: string
+  status: PropertyStatus
 }
 
 export type ArchivedClient = {
@@ -49,7 +50,7 @@ export const mapArchiveRecords = (propertyRows: CloudRow[], clientRows: CloudRow
     price: optionalNumber(row.price),
     rooms: optionalNumber(row.rooms),
     area: optionalNumber(row.area),
-    status: stringValue(row.status),
+    status: row.status === 'sold' || row.status === 'reserved' || row.status === 'archived' ? row.status : 'available',
   })),
   clients: clientRows.map(row => ({
     id: String(row.id),

@@ -57,13 +57,14 @@ export const usePropertyCatalog = (userId?: string) => {
   }
 
   const saveMutation = useMutation({
-    mutationFn: ({ input, details, propertyId, id, owners }: {
+    mutationFn: ({ input, details, propertyId, id, owners, previous }: {
       input: PropertyUpsertInput
       details: PropertyDetailsRecord
       propertyId?: string
       id: string
       owners: PropertyOwnerAssignment[]
-    }) => saveProperty(userId!, input, details, propertyId, id, owners),
+      previous?: Property
+    }) => saveProperty(userId!, input, details, propertyId, id, owners, previous),
     onMutate: ({ input, propertyId, id, owners }) => beginOptimisticUpdate(catalog => {
       const previous = catalog.properties.find(property => property.id === propertyId)
       const next = propertyFromInput(userId!, id, input, previous)
@@ -77,6 +78,7 @@ export const usePropertyCatalog = (userId?: string) => {
       await Promise.all([
         refreshRelated(),
         queryClient.invalidateQueries({ queryKey: crmQueryKeys.propertyDetails(userId!, variables.propertyId || variables.id) }),
+        queryClient.invalidateQueries({ queryKey: crmQueryKeys.propertyHistory(userId!, variables.propertyId || variables.id) }),
       ])
     },
   })
@@ -92,13 +94,18 @@ export const usePropertyCatalog = (userId?: string) => {
   })
 
   const archiveMutation = useMutation({
-    mutationFn: (propertyId: string) => archiveProperty(userId!, propertyId),
-    onMutate: propertyId => beginOptimisticUpdate(catalog => ({
+    mutationFn: (property: Property) => archiveProperty(userId!, property),
+    onMutate: property => beginOptimisticUpdate(catalog => ({
       ...catalog,
-      properties: catalog.properties.filter(property => property.id !== propertyId),
+      properties: catalog.properties.filter(item => item.id !== property.id),
     })),
     onError: (_error, _variables, context) => restore(context),
-    onSettled: refreshRelated,
+    onSettled: async (_data, _error, property) => {
+      await Promise.all([
+        refreshRelated(),
+        queryClient.invalidateQueries({ queryKey: crmQueryKeys.propertyHistory(userId!, property.id) }),
+      ])
+    },
   })
 
   const trashMutation = useMutation({
@@ -115,10 +122,15 @@ export const usePropertyCatalog = (userId?: string) => {
     ...query,
     saveProperty: (input: PropertyUpsertInput, details: PropertyDetailsRecord, propertyId?: string, owners: PropertyOwnerAssignment[] = []) => {
       const preparedOwners = owners.map(owner => ({ ...owner, id: owner.id || crypto.randomUUID() }))
-      return saveMutation.mutateAsync({ input, details, propertyId, id: propertyId || crypto.randomUUID(), owners: preparedOwners })
+      const previous = queryClient.getQueryData<PropertyCatalog>(queryKey)?.properties.find(property => property.id === propertyId)
+      return saveMutation.mutateAsync({ input, details, propertyId, id: propertyId || crypto.randomUUID(), owners: preparedOwners, previous })
     },
     toggleFavorite: favoriteMutation.mutateAsync,
-    archiveProperty: archiveMutation.mutateAsync,
+    archiveProperty: (propertyId: string) => {
+      const property = queryClient.getQueryData<PropertyCatalog>(queryKey)?.properties.find(item => item.id === propertyId)
+      if (!property) return Promise.reject(new Error('Объект не найден в локальном кэше.'))
+      return archiveMutation.mutateAsync(property)
+    },
     removeProperty: trashMutation.mutateAsync,
     mutationPending: saveMutation.isPending || favoriteMutation.isPending || archiveMutation.isPending || trashMutation.isPending,
   }

@@ -22,8 +22,8 @@ export const useArchiveRecords = (userId?: string) => {
     staleTime: 60_000,
   })
   const mutate = useMutation({
-    mutationFn: ({ action, kind, id }: { action: 'restore' | 'trash'; kind: ArchiveRecordKind; id: string }) => action === 'restore'
-      ? restoreArchivedRecord(userId!, kind, id)
+    mutationFn: ({ action, kind, id, previousProperty }: { action: 'restore' | 'trash'; kind: ArchiveRecordKind; id: string; previousProperty?: ArchiveRecords['properties'][number] }) => action === 'restore'
+      ? restoreArchivedRecord(userId!, kind, id, previousProperty)
       : trashArchivedRecord(userId!, kind, id),
     onMutate: async ({ kind, id }) => {
       await queryClient.cancelQueries({ queryKey })
@@ -38,7 +38,12 @@ export const useArchiveRecords = (userId?: string) => {
   })
   return {
     ...query,
-    restoreRecord: (kind: ArchiveRecordKind, id: string) => mutate.mutateAsync({ action: 'restore', kind, id }),
+    restoreRecord: (kind: ArchiveRecordKind, id: string) => mutate.mutateAsync({
+      action: 'restore',
+      kind,
+      id,
+      previousProperty: kind === 'property' ? queryClient.getQueryData<ArchiveRecords>(queryKey)?.properties.find(item => item.id === id) : undefined,
+    }),
     trashRecord: (kind: ArchiveRecordKind, id: string) => mutate.mutateAsync({ action: 'trash', kind, id }),
     mutationPending: mutate.isPending,
   }

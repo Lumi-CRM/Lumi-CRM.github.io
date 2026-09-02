@@ -3,6 +3,8 @@ import { moveToTrash } from './trash'
 import { supabase } from './supabase'
 import type { PropertyUpsertInput } from './propertyRecordMapping'
 import { makePropertyOwnerRows, normalizePropertyOwners, type PropertyOwnerAssignment } from './propertyOwners'
+import { recordPropertyHistory } from './propertyHistory'
+import { buildPropertyHistoryChange } from './propertyHistoryMapping'
 
 export type PropertyDetailsRecord = Record<string, unknown>
 
@@ -86,6 +88,7 @@ export const saveProperty = async (
   propertyId?: string,
   newPropertyId?: string,
   owners: PropertyOwnerAssignment[] = [],
+  previous?: Pick<Property, 'price' | 'status'>,
 ) => {
   const id = propertyId || newPropertyId || crypto.randomUUID()
   const normalizedOwners = normalizePropertyOwners(owners)
@@ -114,6 +117,12 @@ export const saveProperty = async (
     throw ownerError
   }
 
+  try {
+    await recordPropertyHistory(userId, id, buildPropertyHistoryChange(previous, input), 'form')
+  } catch (historyError) {
+    console.warn('Property history update failed:', historyError)
+  }
+
   if (normalizedOwners.length) {
     const role = input.listingType === 'rent' ? 'landlord' : 'seller'
     await Promise.all(normalizedOwners.map(async owner => {
@@ -140,14 +149,19 @@ export const setPropertyFavorite = async (userId: string, property: Property) =>
   return { id: property.id, isFavorite }
 }
 
-export const archiveProperty = async (userId: string, propertyId: string) => {
+export const archiveProperty = async (userId: string, property: Property) => {
   const { error } = await supabase
     .from('properties')
     .update({ status: 'archived', archived_at: new Date().toISOString() })
-    .eq('id', propertyId)
+    .eq('id', property.id)
     .eq('user_id', userId)
   if (error) throw error
-  return propertyId
+  try {
+    await recordPropertyHistory(userId, property.id, buildPropertyHistoryChange(property, { price: property.price, status: 'archived' }), 'archive')
+  } catch (historyError) {
+    console.warn('Property history update failed:', historyError)
+  }
+  return property.id
 }
 
 export const trashProperty = async (userId: string, propertyId: string) => {

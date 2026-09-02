@@ -1,6 +1,8 @@
 import type { Client, Property } from '../types'
 import { mapClientRow, mapPropertyRow } from './propertyMapping'
-import { mapArchiveRecords, mapTrashItems, type ArchiveRecords, type TrashItem } from './recordCollectionMapping'
+import { mapArchiveRecords, mapTrashItems, type ArchivedProperty, type ArchiveRecords, type TrashItem } from './recordCollectionMapping'
+import { recordPropertyHistory } from './propertyHistory'
+import { buildPropertyHistoryChange } from './propertyHistoryMapping'
 import { supabase } from './supabase'
 import { deleteForever, emptyTrash, moveToTrash, restoreFromTrash, type TrashTable } from './trash'
 
@@ -17,11 +19,18 @@ export const fetchArchiveRecords = async (userId: string): Promise<ArchiveRecord
   return mapArchiveRecords(propertyResult.data || [], clientResult.data || [])
 }
 
-export const restoreArchivedRecord = async (userId: string, kind: ArchiveRecordKind, id: string) => {
+export const restoreArchivedRecord = async (userId: string, kind: ArchiveRecordKind, id: string, previousProperty?: ArchivedProperty) => {
   const table = kind === 'property' ? 'properties' : 'clients'
   const status = kind === 'property' ? 'available' : 'active'
   const { error } = await supabase.from(table).update({ status, archived_at: null }).eq('id', id).eq('user_id', userId)
   if (error) throw error
+  if (kind === 'property' && previousProperty) {
+    try {
+      await recordPropertyHistory(userId, id, buildPropertyHistoryChange(previousProperty, { price: previousProperty.price, status: 'available' }), 'restore')
+    } catch (historyError) {
+      console.warn('Property history update failed:', historyError)
+    }
+  }
   return { kind, id }
 }
 

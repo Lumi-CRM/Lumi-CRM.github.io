@@ -5,6 +5,8 @@ import { moveToTrash } from './trash'
 import type { Client } from '../types'
 import type { ContactInput } from './contactRecordMapping'
 import { addPropertyOwner } from './properties'
+import { recordPropertyHistory } from './propertyHistory'
+import { buildPropertyHistoryChange } from './propertyHistoryMapping'
 
 export type { ContactInput } from './contactRecordMapping'
 
@@ -153,6 +155,11 @@ export const saveOwnerRecord = async (
     })
     if (error) throw error
     await addPropertyOwner(userId, createdPropertyId, id, true)
+    try {
+      await recordPropertyHistory(userId, createdPropertyId, buildPropertyHistoryChange(undefined, { price: null, status: 'available' }), 'contact')
+    } catch (historyError) {
+      console.warn('Property history update failed:', historyError)
+    }
   }
   return id
 }
