@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import type { Client } from '../types'
 import BuyerForm from '../components/BuyerForm'
 import ActivityTimeline from '../components/ActivityTimeline'
+import Contact360Panel from '../components/Contact360Panel'
 import EntityFilesPanel from '../components/EntityFilesPanel'
 import { useClientRecords } from '../hooks/useClientRecords'
 import { getErrorMessage } from '../lib/errors'
@@ -226,6 +227,7 @@ const BuyersPage = ({ mode = 'sale' }: BuyersPageProps) => {
                 </div>
               </div>
             </div>
+            <Contact360Panel client={selectedBuyer} clients={clientQuery.data || []} />
             <ActivityTimeline clientId={selectedBuyer.id} />
             <EntityFilesPanel clientId={selectedBuyer.id} title={mode === 'rent' ? 'Документы арендатора' : 'Документы покупателя'} />
           </div>

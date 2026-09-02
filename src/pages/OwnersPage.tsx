@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 import OwnerForm from '../components/OwnerForm'
 import EntityFilesPanel from '../components/EntityFilesPanel'
 import ActivityTimeline from '../components/ActivityTimeline'
+import Contact360Panel from '../components/Contact360Panel'
 import type { Client } from '../types'
 import { useClientRecords } from '../hooks/useClientRecords'
 import { usePropertyCatalog } from '../hooks/usePropertyCatalog'
@@ -160,6 +161,7 @@ const OwnersPage = ({ mode = 'sale' }: OwnersPageProps) => {
             )}
 
             {selectedOwner.description && <section><h3 className="lumi-text mb-2 text-lg font-semibold">Личные примечания</h3><div className="lumi-panel-muted lumi-muted-strong whitespace-pre-wrap rounded-xl border p-4">{selectedOwner.description}</div></section>}
+            <Contact360Panel client={selectedOwner} clients={clientQuery.data || []} />
             <ActivityTimeline clientId={selectedOwner.id} />
             <EntityFilesPanel clientId={selectedOwner.id} title={`Документы ${personLabel}`} />
           </div>

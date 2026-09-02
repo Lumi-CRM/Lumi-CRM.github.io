@@ -48,6 +48,10 @@ export const saveDeal = async (
     buyer_id: buyerIds[0],
     price: input.price ?? null,
     status: input.status,
+    stage: input.stage ?? 'preparation',
+    expenses: input.expenses ?? 0,
+    loss_reason: input.lossReason || null,
+    checklist: input.checklist ?? [],
     notes: input.notes || null,
   }
   const dealResult = dealId

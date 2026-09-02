@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { AlarmClockPlus, Calendar, CheckCircle2, Clock, Edit, ListChecks, Plus, RefreshCw, RotateCcw, Target, Trash2 } from 'lucide-react'
+import { AlarmClockPlus, Calendar, CheckCircle2, Clock, Edit, ListChecks, Plus, RefreshCw, Repeat2, RotateCcw, Target, Trash2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import Modal from '../components/Modal'
 import type { Task } from '../types'
@@ -26,6 +26,11 @@ const smartFields = [
 ] as const
 
 const emptySmart: SmartCriteria = { specific: '', measurable: '', achievable: '', relevant: '', timeBound: '' }
+const taskTemplates: Array<{ label: string; title: string; quadrant: Quadrant; smart: SmartCriteria }> = [
+  { label: 'Холодный звонок', title: 'Связаться с собственником', quadrant: 'do', smart: { specific: 'Позвонить собственнику и уточнить актуальность продажи', measurable: 'Зафиксировать результат и следующий шаг', achievable: 'Контакт и карточка объекта уже в CRM', relevant: 'Пополнение базы объектов', timeBound: 'Выполнить в назначенное время' } },
+  { label: 'Подготовка показа', title: 'Подготовить объект к показу', quadrant: 'plan', smart: { specific: 'Проверить объект, документы и маршрут', measurable: 'Все пункты подготовки отмечены', achievable: 'Данные объекта доступны в CRM', relevant: 'Повысить качество показа', timeBound: 'Завершить до встречи' } },
+  { label: 'Сделка', title: 'Проверить документы по сделке', quadrant: 'plan', smart: { specific: 'Проверить комплект документов всех участников', measurable: 'Нет незакрытых замечаний', achievable: 'Документы загружены в карточки', relevant: 'Снизить риск срыва сделки', timeBound: 'До согласования договора' } },
+]
 const inputClass = 'lumi-control w-full rounded-xl px-4 py-3 outline-none'
 const isCompleted = (task: Task) => task.status === 'done' || task.isCompleted
 
@@ -54,6 +59,9 @@ const TasksPage = () => {
   const [dueTime, setDueTime] = useState('')
   const [quadrant, setQuadrant] = useState<Quadrant>('plan')
   const [smart, setSmart] = useState<SmartCriteria>(emptySmart)
+  const [recurrenceRule, setRecurrenceRule] = useState<NonNullable<Task['recurrenceRule']>>('none')
+  const [subtasks, setSubtasks] = useState<NonNullable<Task['subtasks']>>([])
+  const [subtaskTitle, setSubtaskTitle] = useState('')
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -69,6 +77,8 @@ const TasksPage = () => {
         dueTime: dueTime || undefined,
         smartCriteria: smart,
         eisenhowerQuadrant: quadrant,
+        recurrenceRule,
+        subtasks,
       }, editingTask?.id)
     } catch {
       setError('Не удалось сохранить задачу.')
@@ -128,7 +138,30 @@ const TasksPage = () => {
     setDueTime(task?.dueTime || '')
     setQuadrant(task?.eisenhowerQuadrant || activeQuadrant)
     setSmart(task?.smartCriteria || emptySmart)
+    setRecurrenceRule(task?.recurrenceRule || 'none')
+    setSubtasks(task?.subtasks || [])
+    setSubtaskTitle('')
     setIsModalOpen(true)
+  }
+
+  const addSubtask = () => {
+    const value = subtaskTitle.trim()
+    if (!value) return
+    setSubtasks(current => [...current, { id: crypto.randomUUID(), title: value, completed: false }])
+    setSubtaskTitle('')
+  }
+
+  const toggleSubtask = async (task: Task, subtaskId: string) => {
+    const next = (task.subtasks || []).map(item => item.id === subtaskId ? { ...item, completed: !item.completed } : item)
+    setError('')
+    try {
+      await persistTask({
+        title: task.title, description: task.description || '', status: task.status, priority: task.priority,
+        dueDate: task.dueDate, dueTime: task.dueTime, smartCriteria: task.smartCriteria || {},
+        eisenhowerQuadrant: task.eisenhowerQuadrant || 'plan', recurrenceRule: task.recurrenceRule || 'none',
+        parentTaskId: task.parentTaskId, subtasks: next,
+      }, task.id)
+    } catch { setError('Не удалось обновить подзадачу.') }
   }
 
   const grouped = useMemo(() => Object.fromEntries(matrix.map(item => {
@@ -168,6 +201,8 @@ const TasksPage = () => {
           {task.dueTime && <><Clock className="ml-1 h-4 w-4" />{task.dueTime.slice(0, 5)}</>}
         </p>
       )}
+      {task.recurrenceRule && task.recurrenceRule !== 'none' && <p className="lumi-muted mt-3 flex items-center gap-2 text-sm"><Repeat2 className="h-4 w-4" />{task.recurrenceRule === 'daily' ? 'Каждый день' : task.recurrenceRule === 'weekly' ? 'Каждую неделю' : 'Каждый месяц'}</p>}
+      {(task.subtasks || []).length > 0 && <div className="lumi-panel-muted mt-4 space-y-2 rounded-xl border p-3"><p className="lumi-muted text-xs font-semibold">Подзадачи: {(task.subtasks || []).filter(item => item.completed).length}/{task.subtasks?.length}</p>{task.subtasks?.map(item => <label key={item.id} className="lumi-text flex items-start gap-2 text-sm"><input type="checkbox" checked={item.completed} disabled={completed || mutationPending} onChange={() => void toggleSubtask(task, item.id)} className="mt-0.5 h-4 w-4 rounded" /><span className={item.completed ? 'line-through opacity-70' : ''}>{item.title}</span></label>)}</div>}
       <div className={`mt-4 grid gap-2 ${completed ? 'grid-cols-2' : 'grid-cols-3'}`}>
         {!completed && (
           <button type="button" onClick={() => void snoozeTask(task)} className="lumi-control flex items-center justify-center rounded-lg p-2" title="Отложить на 15 минут" aria-label="Отложить на 15 минут">
@@ -281,7 +316,19 @@ const TasksPage = () => {
                 <label className="lumi-muted-strong text-sm">Дата<input type="date" value={dueDate} onChange={event => setDueDate(event.target.value)} className={`${inputClass} mt-2`} /></label>
                 <label className="lumi-muted-strong text-sm">Время<input type="time" value={dueTime} onChange={event => setDueTime(event.target.value)} className={`${inputClass} mt-2`} /></label>
               </div>
+              <label className="lumi-muted-strong text-sm">Повторение<select value={recurrenceRule} onChange={event => setRecurrenceRule(event.target.value as NonNullable<Task['recurrenceRule']>)} className={`${inputClass} mt-2`}><option value="none">Не повторять</option><option value="daily">Каждый день</option><option value="weekly">Каждую неделю</option><option value="monthly">Каждый месяц</option></select></label>
             </div>
+          </section>
+
+          <section className="lumi-panel-muted rounded-2xl border p-4">
+            <h3 className="lumi-text font-semibold">Шаблоны</h3>
+            <div className="mt-3 flex flex-wrap gap-2">{taskTemplates.map(template => <button key={template.label} type="button" onClick={() => { setTitle(template.title); setQuadrant(template.quadrant); setSmart(template.smart) }} className="lumi-control rounded-xl px-3 py-2 text-sm font-medium">{template.label}</button>)}</div>
+          </section>
+
+          <section className="lumi-panel-muted rounded-2xl border p-4">
+            <h3 className="lumi-text font-semibold">Подзадачи</h3>
+            <div className="mt-3 space-y-2">{subtasks.map(item => <div key={item.id} className="lumi-control flex items-center gap-3 rounded-xl px-3 py-2"><input type="checkbox" checked={item.completed} onChange={() => setSubtasks(current => current.map(value => value.id === item.id ? { ...value, completed: !value.completed } : value))} className="h-4 w-4 rounded" /><span className="lumi-text min-w-0 flex-1 text-sm">{item.title}</span><button type="button" onClick={() => setSubtasks(current => current.filter(value => value.id !== item.id))} className="text-red-400"><Trash2 className="h-4 w-4" /></button></div>)}</div>
+            <div className="mt-3 flex gap-2"><input value={subtaskTitle} onChange={event => setSubtaskTitle(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addSubtask() } }} className="lumi-control min-w-0 flex-1 rounded-xl px-4 py-3" placeholder="Новая подзадача" /><button type="button" onClick={addSubtask} className="lumi-gradient-button rounded-xl p-3" aria-label="Добавить подзадачу"><Plus className="h-5 w-5" /></button></div>
           </section>
 
           <section className="lumi-panel-muted rounded-2xl border p-4">

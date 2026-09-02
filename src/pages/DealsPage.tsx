@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { BriefcaseBusiness, Building2, Edit, FileText, Plus, Trash2, Users } from 'lucide-react'
+import { BriefcaseBusiness, Building2, CircleDollarSign, Edit, FileText, ListChecks, Plus, Trash2, TrendingUp, Users } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useAuth } from '../context/AuthContext'
 import { useContacts } from '../hooks/useContacts'
@@ -18,6 +18,10 @@ type DealFormData = {
   price: number | undefined
   agencyIncome: number | undefined
   agentIncome: number | undefined
+  expenses: number | undefined
+  stage: NonNullable<Deal['stage']>
+  lossReason: string
+  checklist: NonNullable<Deal['checklist']>
   status: Deal['status']
   notes: string
 }
@@ -31,6 +35,10 @@ const emptyForm: DealFormData = {
   price: undefined,
   agencyIncome: undefined,
   agentIncome: undefined,
+  expenses: undefined,
+  stage: 'preparation',
+  lossReason: '',
+  checklist: [],
   status: 'active',
   notes: '',
 }
@@ -75,6 +83,10 @@ const DealsPage = () => {
       price: deal.price,
       agencyIncome: deal.agencyIncome,
       agentIncome: deal.agentIncome,
+      expenses: deal.expenses,
+      stage: deal.stage || 'preparation',
+      lossReason: deal.lossReason || '',
+      checklist: deal.checklist || [],
       status: deal.status,
       notes: deal.notes || '',
     } : emptyForm)
@@ -118,6 +130,10 @@ const DealsPage = () => {
         price: formData.price,
         agencyIncome: formData.agencyIncome,
         agentIncome: formData.agentIncome,
+        expenses: formData.expenses,
+        stage: formData.stage,
+        lossReason: formData.lossReason || undefined,
+        checklist: formData.checklist,
         status: formData.status,
         notes: formData.notes || undefined,
       }, editingDeal?.id)
@@ -151,6 +167,54 @@ const DealsPage = () => {
     closed: 'lumi-accent-soft',
     cancelled: 'bg-red-500/15 text-red-500',
   }
+  const stageLabel: Record<NonNullable<Deal['stage']>, string> = {
+    preparation: 'Подготовка',
+    documents: 'Документы',
+    approval: 'Согласование',
+    registration: 'Регистрация',
+    settlement: 'Расчёты',
+    completed: 'Завершена',
+    lost: 'Потеряна',
+  }
+  const closedDeals = deals.filter(deal => deal.status === 'closed').length
+  const lostDeals = deals.filter(deal => deal.status === 'cancelled' || deal.stage === 'lost').length
+  const conversionBase = closedDeals + lostDeals
+  const conversion = conversionBase > 0 ? Math.round((closedDeals / conversionBase) * 100) : 0
+  const totalExpenses = deals.reduce((sum, deal) => sum + (deal.expenses || 0), 0)
+  const expectedAgentIncome = deals.reduce((sum, deal) => sum + (deal.agentIncome || 0) - (deal.expenses || 0), 0)
+  const stageCounts = Object.entries(stageLabel).map(([stage, label]) => ({
+    stage: stage as NonNullable<Deal['stage']>,
+    label,
+    count: deals.filter(deal => (deal.stage || 'preparation') === stage).length,
+  }))
+  const maxStageCount = Math.max(1, ...stageCounts.map(item => item.count))
+
+  const addChecklistItem = () => setFormData(current => ({
+    ...current,
+    checklist: [...current.checklist, { id: crypto.randomUUID(), title: '', completed: false }],
+  }))
+
+  const updateChecklistItem = (id: string, patch: Partial<NonNullable<Deal['checklist']>[number]>) => setFormData(current => ({
+    ...current,
+    checklist: current.checklist.map(item => item.id === id ? { ...item, ...patch } : item),
+  }))
+
+  const removeChecklistItem = (id: string) => setFormData(current => ({
+    ...current,
+    checklist: current.checklist.filter(item => item.id !== id),
+  }))
+
+  const changeDealStatus = (status: Deal['status']) => setFormData(current => ({
+    ...current,
+    status,
+    stage: status === 'closed' ? 'completed' : status === 'cancelled' ? 'lost' : current.stage === 'completed' || current.stage === 'lost' ? 'preparation' : current.stage,
+  }))
+
+  const changeDealStage = (stage: NonNullable<Deal['stage']>) => setFormData(current => ({
+    ...current,
+    stage,
+    status: stage === 'completed' ? 'closed' : stage === 'lost' ? 'cancelled' : current.status === 'closed' || current.status === 'cancelled' ? 'active' : current.status,
+  }))
 
   return (
     <div className="space-y-6">
@@ -165,6 +229,20 @@ const DealsPage = () => {
       </div>
 
       {(actionError || loadError) && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-400"><span>{actionError || (loadError instanceof Error ? loadError.message : 'Не удалось загрузить сделки')}</span>{loadError && <button type="button" onClick={() => void Promise.all([dealsQuery.refetch(), propertyQuery.refetch(), contactsQuery.refetch()])} className="font-semibold underline">Повторить</button>}</div>}
+      {!loading && deals.length > 0 && (
+        <>
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <div className="lumi-panel rounded-2xl border p-4"><TrendingUp className="lumi-accent-text h-5 w-5" /><p className="lumi-muted mt-3 text-xs">Конверсия закрытия</p><p className="lumi-text mt-1 text-2xl font-bold">{conversion}%</p></div>
+            <div className="lumi-panel rounded-2xl border p-4"><BriefcaseBusiness className="lumi-accent-text h-5 w-5" /><p className="lumi-muted mt-3 text-xs">Закрыто / потеряно</p><p className="lumi-text mt-1 text-2xl font-bold">{closedDeals} / {lostDeals}</p></div>
+            <div className="lumi-panel rounded-2xl border p-4"><CircleDollarSign className="lumi-accent-text h-5 w-5" /><p className="lumi-muted mt-3 text-xs">Расходы</p><p className="lumi-text mt-1 text-xl font-bold">{formatMoney(totalExpenses)}</p></div>
+            <div className="lumi-panel rounded-2xl border p-4"><CircleDollarSign className="lumi-accent-text h-5 w-5" /><p className="lumi-muted mt-3 text-xs">Прогноз чистого дохода</p><p className="lumi-text mt-1 text-xl font-bold">{formatMoney(expectedAgentIncome)}</p></div>
+          </div>
+          <section className="lumi-panel rounded-2xl border p-5">
+            <h2 className="lumi-text font-semibold">Воронка сделок</h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{stageCounts.map(item => <div key={item.stage} className="lumi-panel-muted rounded-xl border p-3"><div className="flex items-center justify-between gap-3 text-sm"><span className="lumi-muted-strong">{item.label}</span><strong className="lumi-text">{item.count}</strong></div><div className="lumi-control mt-2 h-1.5 overflow-hidden rounded-full"><div className="h-full rounded-full bg-[var(--lumi-accent)]" style={{ width: `${item.count / maxStageCount * 100}%` }} /></div></div>)}</div>
+          </section>
+        </>
+      )}
       {loading ? (
         <div className="lumi-muted py-20 text-center">Загружаем сделки…</div>
       ) : deals.length === 0 ? (
@@ -189,14 +267,17 @@ const DealsPage = () => {
                   </div>
                   <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${statusClass[deal.status]}`}>{statusLabel[deal.status]}</span>
                 </div>
+                <div className="lumi-muted mt-3 flex flex-wrap items-center gap-2 text-xs"><span className="lumi-accent-soft rounded-full px-3 py-1 font-medium">Этап: {stageLabel[deal.stage || 'preparation']}</span>{deal.checklist && deal.checklist.length > 0 && <span>{deal.checklist.filter(item => item.completed).length} из {deal.checklist.length} пунктов</span>}</div>
                 <div className="mt-5 space-y-3">
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                     <div className="lumi-panel-muted rounded-xl border p-3"><p className="lumi-muted text-xs">Приход агентства</p><p className="lumi-text mt-1 font-semibold">{formatMoney(deal.agencyIncome)}</p></div>
                     <div className="lumi-panel-muted rounded-xl border p-3"><p className="lumi-muted text-xs">Доход агента</p><p className="lumi-text mt-1 font-semibold">{formatMoney(deal.agentIncome)}</p></div>
+                    <div className="lumi-panel-muted rounded-xl border p-3"><p className="lumi-muted text-xs">Расходы</p><p className="lumi-text mt-1 font-semibold">{formatMoney(deal.expenses)}</p></div>
                   </div>
                   <div className="lumi-panel-muted flex items-center gap-3 rounded-xl border p-3"><Building2 className="lumi-accent-text h-4 w-4" /><span className="lumi-muted-strong text-sm">{property?.address || 'Объект не найден'}</span></div>
                   <div className="lumi-panel-muted flex items-start gap-3 rounded-xl border p-3"><Users className="lumi-accent-text mt-0.5 h-4 w-4 shrink-0" /><span className="lumi-muted-strong text-sm">Покупатели: {dealBuyers.length > 0 ? dealBuyers.map(clientName).join(', ') : 'Не выбраны'}</span></div>
                   <div className="lumi-panel-muted flex items-start gap-3 rounded-xl border p-3"><Users className="lumi-accent-text mt-0.5 h-4 w-4 shrink-0" /><span className="lumi-muted-strong text-sm">Собственники: {dealOwners.length > 0 ? dealOwners.map(clientName).join(', ') : 'Не выбраны'}</span></div>
+                  {deal.lossReason && <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">Причина потери: {deal.lossReason}</div>}
                   {deal.notes && <p className="lumi-muted whitespace-pre-wrap text-sm">{deal.notes}</p>}
                 </div>
                 <div className="mt-4 flex justify-end gap-2">
@@ -231,7 +312,7 @@ const DealsPage = () => {
             <div className="mb-2 flex items-center justify-between gap-3"><label className="lumi-muted-strong text-sm font-medium">Собственники *</label><button type="button" onClick={() => addParticipant('ownerIds')} className="lumi-accent-text flex items-center gap-1 rounded-lg px-2 py-1 text-sm font-semibold"><Plus className="h-4 w-4" />Добавить</button></div>
             <div className="space-y-2">{formData.ownerIds.map((ownerId, index) => <div key={index} className="flex items-center gap-2"><select required value={ownerId} onChange={event => changeParticipant('ownerIds', index, event.target.value)} className="lumi-control min-w-0 flex-1 rounded-xl px-4 py-3 outline-none"><option value="">Выберите собственника</option>{owners.map(owner => <option key={owner.id} value={owner.id} disabled={owner.id !== ownerId && formData.ownerIds.includes(owner.id)}>{clientName(owner)}{owner.phone ? ` · ${owner.phone}` : ''}</option>)}</select>{formData.ownerIds.length > 1 && <button type="button" onClick={() => removeParticipant('ownerIds', index)} className="rounded-xl bg-red-500/10 p-3 text-red-500" aria-label={`Удалить собственника ${index + 1}`}><Trash2 className="h-5 w-5" /></button>}</div>)}</div>
           </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <label className="lumi-muted-strong mb-2 block text-sm font-medium">Итоговая стоимость объекта *</label>
               <input type="number" required min="0" step="any" value={formData.price ?? ''} onChange={event => setFormData(current => ({ ...current, price: event.target.value ? Number(event.target.value) : undefined }))} className="lumi-control w-full rounded-xl px-4 py-3 outline-none" placeholder="0" />
@@ -244,12 +325,29 @@ const DealsPage = () => {
               <label className="lumi-muted-strong mb-2 block text-sm font-medium">Доход агента</label>
               <input type="number" min="0" step="any" value={formData.agentIncome ?? ''} onChange={event => setFormData(current => ({ ...current, agentIncome: event.target.value ? Number(event.target.value) : undefined }))} className="lumi-control w-full rounded-xl px-4 py-3 outline-none" placeholder="0" />
             </div>
+            <div>
+              <label className="lumi-muted-strong mb-2 block text-sm font-medium">Расходы</label>
+              <input type="number" min="0" step="any" value={formData.expenses ?? ''} onChange={event => setFormData(current => ({ ...current, expenses: event.target.value ? Number(event.target.value) : undefined }))} className="lumi-control w-full rounded-xl px-4 py-3 outline-none" placeholder="0" />
+            </div>
           </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="lumi-muted-strong mb-2 block text-sm font-medium">Статус</label>
+              <select value={formData.status} onChange={event => changeDealStatus(event.target.value as Deal['status'])} className="lumi-control w-full rounded-xl px-4 py-3 outline-none">
+                {Object.entries(statusLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="lumi-muted-strong mb-2 block text-sm font-medium">Этап сделки</label>
+              <select value={formData.stage} onChange={event => changeDealStage(event.target.value as NonNullable<Deal['stage']>)} className="lumi-control w-full rounded-xl px-4 py-3 outline-none">
+                {Object.entries(stageLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+            </div>
+          </div>
+          {(formData.status === 'cancelled' || formData.stage === 'lost') && <div><label className="lumi-muted-strong mb-2 block text-sm font-medium">Причина потери</label><input value={formData.lossReason} onChange={event => setFormData(current => ({ ...current, lossReason: event.target.value }))} className="lumi-control w-full rounded-xl px-4 py-3 outline-none" placeholder="Почему сделка не состоялась" /></div>}
           <div>
-            <label className="lumi-muted-strong mb-2 block text-sm font-medium">Статус</label>
-            <select value={formData.status} onChange={event => setFormData(current => ({ ...current, status: event.target.value as Deal['status'] }))} className="lumi-control w-full rounded-xl px-4 py-3 outline-none">
-              {Object.entries(statusLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
+            <div className="mb-2 flex items-center justify-between gap-3"><label className="lumi-muted-strong flex items-center gap-2 text-sm font-medium"><ListChecks className="h-4 w-4" />Чек-лист сделки</label><button type="button" onClick={addChecklistItem} className="lumi-accent-text flex items-center gap-1 rounded-lg px-2 py-1 text-sm font-semibold"><Plus className="h-4 w-4" />Добавить</button></div>
+            <div className="space-y-2">{formData.checklist.map((item, index) => <div key={item.id} className="flex items-center gap-2"><input type="checkbox" checked={item.completed} onChange={event => updateChecklistItem(item.id, { completed: event.target.checked })} className="h-5 w-5 rounded" aria-label={`Выполнить пункт ${index + 1}`} /><input required value={item.title} onChange={event => updateChecklistItem(item.id, { title: event.target.value })} className="lumi-control min-w-0 flex-1 rounded-xl px-4 py-3 outline-none" placeholder="Пункт чек-листа" /><button type="button" onClick={() => removeChecklistItem(item.id)} className="rounded-xl bg-red-500/10 p-3 text-red-500" aria-label={`Удалить пункт ${index + 1}`}><Trash2 className="h-5 w-5" /></button></div>)}</div>
           </div>
           <div>
             <label className="lumi-muted-strong mb-2 block text-sm font-medium">Заметки</label>

@@ -7,6 +7,8 @@ export const WORKSPACE_BACKUP_TABLES = [
   'deal_participants',
   'property_owners',
   'property_history',
+  'client_contact_points',
+  'client_relationships',
   'crm_activities',
   'crm_files',
   'property_details',

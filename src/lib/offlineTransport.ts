@@ -57,6 +57,8 @@ const UUID_TABLES = new Set([
   'deal_participants',
   'property_owners',
   'property_history',
+  'client_contact_points',
+  'client_relationships',
   'crm_activities',
   'crm_files',
   'client_requirements',
@@ -528,6 +530,8 @@ const conflictFields: Record<string, string> = {
   client_requirements: 'client_id,purpose',
   property_shares: 'user_id,property_id',
   push_subscriptions: 'user_id,endpoint',
+  client_contact_points: 'user_id,client_id,kind,value',
+  client_relationships: 'user_id,source_client_id,target_client_id,relationship',
 }
 
 const replayUrl = (entry: QueuedRequest) => {

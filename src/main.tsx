@@ -5,6 +5,7 @@ import App from './App.tsx'
 import './index.css'
 import { installNativeNotificationHandlers } from './lib/nativeReminders'
 import { installCrmQueryInvalidationBridge, queryClient } from './lib/queryClient'
+import { installNativeLifecycleSync } from './lib/nativeLifecycle'
 
 installCrmQueryInvalidationBridge()
 
@@ -42,3 +43,4 @@ document.addEventListener('visibilitychange', () => {
 })
 
 void installNativeNotificationHandlers()
+void installNativeLifecycleSync()

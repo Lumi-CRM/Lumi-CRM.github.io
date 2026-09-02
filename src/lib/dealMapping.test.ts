@@ -4,7 +4,7 @@ import { dealFromInput, mapDealRows } from './dealMapping.ts'
 
 test('maps deal participants and separate finance values', () => {
   const [deal] = mapDealRows([
-    { id: 'deal-1', user_id: 'user-1', property_id: 'property-1', buyer_id: 'legacy-buyer', price: 8_300_000, status: 'closed', created_at: '2026-08-01' },
+    { id: 'deal-1', user_id: 'user-1', property_id: 'property-1', buyer_id: 'legacy-buyer', price: 8_300_000, status: 'closed', stage: 'settlement', expenses: 15_000, checklist: [{ id: 'item-1', title: 'Акт', completed: true }], created_at: '2026-08-01' },
   ], [
     { id: 'finance-1', external_key: 'deal-finance:deal-1', metadata: { agency_income: 200_000, agent_income: 80_000 } },
   ], [
@@ -17,6 +17,9 @@ test('maps deal participants and separate finance values', () => {
   assert.equal(deal.agencyIncome, 200_000)
   assert.equal(deal.agentIncome, 80_000)
   assert.equal(deal.financeActivityId, 'finance-1')
+  assert.equal(deal.stage, 'settlement')
+  assert.equal(deal.expenses, 15_000)
+  assert.deepEqual(deal.checklist, [{ id: 'item-1', title: 'Акт', completed: true }])
 })
 
 test('creates optimistic deal with durable participant and finance data', () => {
@@ -27,6 +30,9 @@ test('creates optimistic deal with durable participant and finance data', () => 
     price: 5_000_000,
     agencyIncome: 150_000,
     agentIncome: 75_000,
+    expenses: 5_000,
+    stage: 'documents',
+    checklist: [{ id: 'item-1', title: 'Проверить договор', completed: false }],
     status: 'active',
     notes: 'Проверить документы',
   })
@@ -35,4 +41,7 @@ test('creates optimistic deal with durable participant and finance data', () => 
   assert.deepEqual(deal.buyerIds, ['buyer-1', 'buyer-2'])
   assert.deepEqual(deal.ownerIds, ['owner-1', 'owner-2'])
   assert.equal(deal.financeActivityId, 'finance-1')
+  assert.equal(deal.expenses, 5_000)
+  assert.equal(deal.stage, 'documents')
+  assert.equal(deal.checklist?.length, 1)
 })

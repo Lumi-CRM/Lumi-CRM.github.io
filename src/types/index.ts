@@ -86,6 +86,10 @@ export interface Deal {
   price: number | undefined
   agencyIncome?: number
   agentIncome?: number
+  expenses?: number
+  stage?: 'preparation' | 'documents' | 'approval' | 'registration' | 'settlement' | 'completed' | 'lost'
+  lossReason?: string
+  checklist?: Array<{ id: string; title: string; completed: boolean }>
   status: 'pending' | 'active' | 'closed' | 'cancelled'
   notes?: string
   createdAt: string
@@ -125,6 +129,9 @@ export interface Task {
   project?: string
   smartCriteria?: { specific?: string; measurable?: string; achievable?: string; relevant?: string; timeBound?: string }
   eisenhowerQuadrant?: 'do' | 'plan' | 'delegate' | 'eliminate'
+  recurrenceRule?: 'none' | 'daily' | 'weekly' | 'monthly'
+  parentTaskId?: string
+  subtasks?: Array<{ id: string; title: string; completed: boolean }>
   deletedAt?: string
 }
 

@@ -14,6 +14,8 @@ export type { BackupRow, WorkspaceBackup, WorkspaceBackupSummary, WorkspaceBacku
 
 const RESTORE_TABLE_ORDER: WorkspaceBackupTable[] = [
   'clients',
+  'client_contact_points',
+  'client_relationships',
   'properties',
   'tasks',
   'events',

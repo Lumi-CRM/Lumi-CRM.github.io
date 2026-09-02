@@ -9,6 +9,7 @@ const initialValue: CrmOverview = {
   buyers: 0,
   properties: 0,
   activeDeals: 0,
+  completedToday: 0,
   tasks: [],
   events: [],
   recentProperties: [],

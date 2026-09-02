@@ -1,6 +1,6 @@
 import type { Task, TaskStatus } from '../types'
 import { moveToTrash } from './trash'
-import { mapTaskRow, taskFromInput, type TaskUpsertInput } from './taskMapping'
+import { mapTaskRow, nextRecurringDate, taskFromInput, type TaskUpsertInput } from './taskMapping'
 import { supabase } from './supabase'
 
 export const fetchTasks = async (userId: string): Promise<Task[]> => {
@@ -26,6 +26,9 @@ export const saveTask = async (userId: string, input: TaskUpsertInput, taskId?: 
     due_time: input.dueTime || null,
     smart_criteria: input.smartCriteria,
     eisenhower_quadrant: input.eisenhowerQuadrant,
+    recurrence_rule: input.recurrenceRule || 'none',
+    parent_task_id: input.parentTaskId || null,
+    subtasks: input.subtasks || [],
     is_completed: input.status === 'done',
     completed_at: input.status === 'done' ? new Date().toISOString() : null,
   }
@@ -44,6 +47,27 @@ export const setTaskStatus = async (userId: string, task: Task, status: TaskStat
     .eq('id', task.id)
     .eq('user_id', userId)
   if (error) throw error
+  if (status === 'done' && task.recurrenceRule && task.recurrenceRule !== 'none') {
+    const nextDueDate = nextRecurringDate(task.dueDate, task.recurrenceRule)
+    const { error: recurrenceError } = await supabase.from('tasks').insert({
+      id: crypto.randomUUID(),
+      user_id: userId,
+      title: task.title,
+      description: task.description || null,
+      status: 'todo',
+      priority: task.priority,
+      due_date: nextDueDate || null,
+      due_time: task.dueTime || null,
+      smart_criteria: task.smartCriteria || {},
+      eisenhower_quadrant: task.eisenhowerQuadrant || 'plan',
+      recurrence_rule: task.recurrenceRule,
+      parent_task_id: task.parentTaskId || task.id,
+      subtasks: (task.subtasks || []).map(item => ({ ...item, id: crypto.randomUUID(), completed: false })),
+      is_completed: false,
+      completed_at: null,
+    })
+    if (recurrenceError) throw recurrenceError
+  }
   return { task, status, completedAt }
 }
 

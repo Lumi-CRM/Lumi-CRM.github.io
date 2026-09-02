@@ -9,6 +9,10 @@ export type DealUpsertInput = {
   price?: number
   agencyIncome?: number
   agentIncome?: number
+  expenses?: number
+  stage?: Deal['stage']
+  lossReason?: string
+  checklist?: NonNullable<Deal['checklist']>
   status: Deal['status']
   notes?: string
 }
@@ -52,6 +56,21 @@ export const mapDealRows = (
       price: optionalNumber(row.price),
       agencyIncome: financeByDeal.get(id)?.agencyIncome,
       agentIncome: financeByDeal.get(id)?.agentIncome,
+      expenses: optionalNumber(row.expenses) ?? 0,
+      stage: row.stage === 'documents' || row.stage === 'approval' || row.stage === 'registration' || row.stage === 'settlement' || row.stage === 'completed' || row.stage === 'lost'
+        ? row.stage
+        : 'preparation',
+      lossReason: typeof row.loss_reason === 'string' ? row.loss_reason : undefined,
+      checklist: Array.isArray(row.checklist)
+        ? row.checklist.filter(item => item && typeof item === 'object').map(item => {
+          const checklistItem = item as Record<string, unknown>
+          return {
+            id: typeof checklistItem.id === 'string' ? checklistItem.id : crypto.randomUUID(),
+            title: typeof checklistItem.title === 'string' ? checklistItem.title : '',
+            completed: checklistItem.completed === true,
+          }
+        }).filter(item => item.title)
+        : [],
       financeActivityId: financeIds.get(id),
       status: row.status === 'pending' || row.status === 'closed' || row.status === 'cancelled' ? row.status : 'active',
       notes: typeof row.notes === 'string' ? row.notes : undefined,
@@ -79,6 +98,10 @@ export const dealFromInput = (
   price: input.price,
   agencyIncome: input.agencyIncome,
   agentIncome: input.agentIncome,
+  expenses: input.expenses ?? 0,
+  stage: input.stage ?? 'preparation',
+  lossReason: input.lossReason,
+  checklist: input.checklist ?? [],
   financeActivityId,
   status: input.status,
   notes: input.notes,

@@ -12,6 +12,9 @@ export type TaskUpsertInput = {
   dueTime?: string
   smartCriteria: TaskSmartCriteria
   eisenhowerQuadrant: TaskQuadrant
+  recurrenceRule?: NonNullable<Task['recurrenceRule']>
+  parentTaskId?: string
+  subtasks?: NonNullable<Task['subtasks']>
 }
 
 type CloudTaskRow = Record<string, unknown>
@@ -33,6 +36,11 @@ export const mapTaskRow = (row: CloudTaskRow): Task => ({
   eisenhowerQuadrant: row.eisenhower_quadrant === 'do' || row.eisenhower_quadrant === 'delegate' || row.eisenhower_quadrant === 'eliminate'
     ? row.eisenhower_quadrant
     : 'plan',
+  recurrenceRule: row.recurrence_rule === 'daily' || row.recurrence_rule === 'weekly' || row.recurrence_rule === 'monthly' ? row.recurrence_rule : 'none',
+  parentTaskId: typeof row.parent_task_id === 'string' ? row.parent_task_id : undefined,
+  subtasks: Array.isArray(row.subtasks) ? row.subtasks.flatMap((item, index) => item && typeof item === 'object'
+    ? [{ id: typeof (item as Record<string, unknown>).id === 'string' ? String((item as Record<string, unknown>).id) : `subtask-${index}`, title: typeof (item as Record<string, unknown>).title === 'string' ? String((item as Record<string, unknown>).title) : '', completed: Boolean((item as Record<string, unknown>).completed) }]
+    : []).filter(item => item.title) : [],
   deletedAt: typeof row.deleted_at === 'string' ? row.deleted_at : undefined,
 })
 
@@ -52,4 +60,18 @@ export const taskFromInput = (userId: string, id: string, input: TaskUpsertInput
   completedAt: input.status === 'done' ? previous?.completedAt || new Date().toISOString() : undefined,
   smartCriteria: input.smartCriteria,
   eisenhowerQuadrant: input.eisenhowerQuadrant,
+  recurrenceRule: input.recurrenceRule || 'none',
+  parentTaskId: input.parentTaskId || previous?.parentTaskId,
+  subtasks: input.subtasks || [],
 })
+
+export const nextRecurringDate = (dueDate: string | undefined, recurrence: NonNullable<Task['recurrenceRule']>, now = new Date()) => {
+  if (recurrence === 'none') return undefined
+  const source = dueDate ? new Date(`${dueDate}T12:00:00`) : new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12)
+  if (Number.isNaN(source.getTime())) return undefined
+  if (recurrence === 'daily') source.setDate(source.getDate() + 1)
+  if (recurrence === 'weekly') source.setDate(source.getDate() + 7)
+  if (recurrence === 'monthly') source.setMonth(source.getMonth() + 1)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${source.getFullYear()}-${pad(source.getMonth() + 1)}-${pad(source.getDate())}`
+}

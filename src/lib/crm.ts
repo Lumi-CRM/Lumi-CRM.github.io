@@ -33,6 +33,7 @@ export type CrmOverview = {
   buyers: number
   properties: number
   activeDeals: number
+  completedToday: number
   tasks: OverviewTask[]
   events: OverviewEvent[]
   recentProperties: OverviewProperty[]
@@ -69,6 +70,15 @@ const mondayOf = (date: Date) => {
   return result
 }
 
+const localDateKey = (value: string | Date) => {
+  const date = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 const makePeriods = () => {
   const monthFormatter = new Intl.DateTimeFormat('ru-RU', { month: 'short', year: '2-digit' })
   const shortFormatter = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: 'short' })
@@ -99,6 +109,7 @@ const emptyOverview: CrmOverview = {
   buyers: 0,
   properties: 0,
   activeDeals: 0,
+  completedToday: 0,
   tasks: [],
   events: [],
   recentProperties: [],
@@ -117,12 +128,11 @@ export async function getCrmOverview(userId: string): Promise<CrmOverview> {
       .order('created_at', { ascending: false }),
     supabase
       .from('tasks')
-      .select('id,title,due_date,due_time,priority,status,is_completed')
+      .select('id,title,due_date,due_time,priority,status,is_completed,completed_at')
       .eq('user_id', userId)
       .is('deleted_at', null)
-      .eq('is_completed', false)
       .order('due_date', { ascending: true, nullsFirst: false })
-      .limit(8),
+      .limit(500),
     supabase
       .from('events')
       .select('id,type,title,event_date,event_time,location,is_completed')
@@ -183,7 +193,8 @@ export async function getCrmOverview(userId: string): Promise<CrmOverview> {
     buyers: (clients.data ?? []).filter(client => client.type === 'buyer').length,
     properties: properties.data?.length ?? 0,
     activeDeals: (deals.data ?? []).filter(deal => deal.status === 'active' || deal.status === 'pending').length,
-    tasks: (tasks.data ?? []).map(task => ({
+    completedToday: (tasks.data ?? []).filter(task => task.is_completed && typeof task.completed_at === 'string' && localDateKey(task.completed_at) === localDateKey(new Date())).length,
+    tasks: (tasks.data ?? []).filter(task => !task.is_completed && task.status !== 'done').map(task => ({
       id: task.id,
       title: task.title,
       dueDate: task.due_date ?? undefined,

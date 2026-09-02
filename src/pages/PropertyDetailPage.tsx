@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Camera, FileText, Edit, History, Trash2, Users } from 'lucide-react'
+import { ArrowLeft, Camera, FileText, Edit, History, Megaphone, SearchCheck, Trash2, Users } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import PropertyForm from '../components/PropertyForm'
 import EntityFilesPanel from '../components/EntityFilesPanel'
@@ -10,6 +10,8 @@ import PropertyShowingsPanel from '../components/PropertyShowingsPanel'
 import SharePropertyButton from '../components/SharePropertyButton'
 import { usePropertyCatalog } from '../hooks/usePropertyCatalog'
 import PropertyHistoryPanel from '../components/PropertyHistoryPanel'
+import PropertyPromotionsPanel from '../components/PropertyPromotionsPanel'
+import PropertyMatchesPanel from '../components/PropertyMatchesPanel'
 
 const PropertyDetailPage = () => {
   const navigate = useNavigate()
@@ -22,7 +24,7 @@ const PropertyDetailPage = () => {
     const client = data?.clients.find(item => item.id === link.clientId)
     return client ? [{ client, ...link }] : []
   })
-  const [activeTab, setActiveTab] = useState<'info' | 'photos' | 'documents' | 'showings' | 'history'>('info')
+  const [activeTab, setActiveTab] = useState<'info' | 'photos' | 'documents' | 'showings' | 'promotion' | 'matches' | 'history'>('info')
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
 
   const handleDelete = async () => {
@@ -133,6 +135,8 @@ const PropertyDetailPage = () => {
           Документы
         </button>
         <button onClick={() => setActiveTab('showings')} className={`flex shrink-0 items-center gap-2 rounded-lg px-6 py-2 text-sm font-medium transition-all ${activeTab === 'showings' ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-white' : 'text-gray-600 dark:text-gray-300'}`}><Users className="h-4 w-4" />Показы</button>
+        <button onClick={() => setActiveTab('promotion')} className={`flex shrink-0 items-center gap-2 rounded-lg px-6 py-2 text-sm font-medium transition-all ${activeTab === 'promotion' ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-white' : 'text-gray-600 dark:text-gray-300'}`}><Megaphone className="h-4 w-4" />Продвижение</button>
+        <button onClick={() => setActiveTab('matches')} className={`flex shrink-0 items-center gap-2 rounded-lg px-6 py-2 text-sm font-medium transition-all ${activeTab === 'matches' ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-white' : 'text-gray-600 dark:text-gray-300'}`}><SearchCheck className="h-4 w-4" />Подбор</button>
         <button onClick={() => setActiveTab('history')} className={`flex shrink-0 items-center gap-2 rounded-lg px-6 py-2 text-sm font-medium transition-all ${activeTab === 'history' ? 'bg-white text-gray-900 shadow-sm dark:bg-gray-700 dark:text-white' : 'text-gray-600 dark:text-gray-300'}`}><History className="h-4 w-4" />История</button>
       </div>
 
@@ -287,6 +291,10 @@ const PropertyDetailPage = () => {
       )}
 
       {activeTab === 'showings' && <PropertyShowingsPanel propertyId={property.id} />}
+
+      {activeTab === 'promotion' && <PropertyPromotionsPanel propertyId={property.id} />}
+
+      {activeTab === 'matches' && <PropertyMatchesPanel property={property} />}
 
       {activeTab === 'history' && <div className="space-y-6"><PropertyHistoryPanel propertyId={property.id} /><ActivityTimeline propertyId={property.id} title="Звонки, встречи и комментарии" /></div>}
 

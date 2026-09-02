@@ -1,6 +1,8 @@
 import { Capacitor } from '@capacitor/core'
 import { LocalNotifications } from '@capacitor/local-notifications'
 import { supabase } from './supabase'
+import { mapTaskRow } from './taskMapping'
+import { setTaskStatus } from './tasks'
 
 type ReminderSource = {
   sourceType: 'task' | 'event'
@@ -16,6 +18,7 @@ const ID_MODULO = 2_000_000_000
 const REMINDER_CHANNEL = 'lumicrm-reminders-v2'
 const REMINDER_ACTION_TYPE = 'LUMICRM_REMINDER_ACTIONS'
 const SNOOZE_ACTION = 'SNOOZE_15'
+const COMPLETE_ACTION = 'COMPLETE'
 
 const notificationId = (sourceType: string, sourceId: string, minutes: number) => {
   let hash = 2166136261
@@ -57,7 +60,7 @@ const configureNativeNotifications = async () => {
   await LocalNotifications.registerActionTypes({
     types: [{
       id: REMINDER_ACTION_TYPE,
-      actions: [{ id: SNOOZE_ACTION, title: 'Отложить на 15 минут' }],
+      actions: [{ id: COMPLETE_ACTION, title: 'Выполнено' }, { id: SNOOZE_ACTION, title: 'Отложить на 15 минут' }],
     }],
   })
   if (Capacitor.getPlatform() === 'android') {
@@ -122,7 +125,7 @@ export const syncNativeReminders = async (userId: string) => {
       channelId: REMINDER_CHANNEL,
       actionTypeId: REMINDER_ACTION_TYPE,
       autoCancel: true,
-      extra: { route: source.route, sourceType: source.sourceType, sourceId: source.sourceId, reminderBody: source.body },
+      extra: { route: source.route, sourceType: source.sourceType, sourceId: source.sourceId, userId, reminderBody: source.body },
     }]
   }))
 
@@ -135,16 +138,34 @@ export const installNativeNotificationHandlers = async () => {
   if (!Capacitor.isNativePlatform()) return
   await configureNativeNotifications()
   await LocalNotifications.addListener('localNotificationActionPerformed', action => {
+    if (action.actionId === COMPLETE_ACTION) {
+      const extra = action.notification.extra || {}
+      const sourceType = String(extra.sourceType || '')
+      const sourceId = String(extra.sourceId || '')
+      const userId = String(extra.userId || '')
+      if (sourceType === 'task' && sourceId && userId) {
+        void supabase.from('tasks').select('*').eq('id', sourceId).eq('user_id', userId).maybeSingle().then(({ data }) => {
+          if (data) return setTaskStatus(userId, mapTaskRow(data), 'done')
+        }).then(() => window.dispatchEvent(new CustomEvent('lumicrm:remote-data-changed')))
+      } else if (sourceType === 'event' && sourceId && userId) {
+        void supabase.from('events').update({ is_completed: true }).eq('id', sourceId).eq('user_id', userId)
+          .then(() => window.dispatchEvent(new CustomEvent('lumicrm:remote-data-changed')))
+      }
+      return
+    }
     if (action.actionId === SNOOZE_ACTION) {
       const extra = action.notification.extra || {}
       const next = new Date(Date.now() + 15 * 60_000)
       const sourceType = String(extra.sourceType || '')
       const sourceId = String(extra.sourceId || '')
+      const userId = String(extra.userId || '')
       if (sourceId && (sourceType === 'task' || sourceType === 'event')) {
         const date = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`
         const time = `${String(next.getHours()).padStart(2, '0')}:${String(next.getMinutes()).padStart(2, '0')}:00`
         const update = sourceType === 'task' ? { due_date: date, due_time: time } : { event_date: date, event_time: time }
-        void supabase.from(sourceType === 'task' ? 'tasks' : 'events').update(update).eq('id', sourceId)
+        let query = supabase.from(sourceType === 'task' ? 'tasks' : 'events').update(update).eq('id', sourceId)
+        if (userId) query = query.eq('user_id', userId)
+        void query.then(() => window.dispatchEvent(new CustomEvent('lumicrm:remote-data-changed')))
       }
       void LocalNotifications.schedule({ notifications: [{
         id: notificationId(sourceType || 'reminder', sourceId || String(action.notification.id), Math.floor(Date.now() / 60_000)),

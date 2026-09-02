@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mapTaskRow, taskFromInput } from './taskMapping.ts'
+import { mapTaskRow, nextRecurringDate, taskFromInput } from './taskMapping.ts'
 
 test('maps task fields from the cloud model', () => {
   const task = mapTaskRow({
@@ -11,10 +11,21 @@ test('maps task fields from the cloud model', () => {
     priority: 'high',
     due_date: '2026-09-02',
     eisenhower_quadrant: 'do',
+    recurrence_rule: 'weekly',
+    subtasks: [{ id: 's1', title: 'Подготовить документы', completed: true }],
   })
   assert.equal(task.userId, 'user-1')
   assert.equal(task.dueDate, '2026-09-02')
   assert.equal(task.eisenhowerQuadrant, 'do')
+  assert.equal(task.recurrenceRule, 'weekly')
+  assert.equal(task.subtasks?.[0].completed, true)
+})
+
+test('calculates the next recurring task date', () => {
+  assert.equal(nextRecurringDate('2026-09-02', 'daily'), '2026-09-03')
+  assert.equal(nextRecurringDate('2026-09-02', 'weekly'), '2026-09-09')
+  assert.equal(nextRecurringDate('2026-09-02', 'monthly'), '2026-10-02')
+  assert.equal(nextRecurringDate('2026-09-02', 'none'), undefined)
 })
 
 test('creates an optimistic completed task with the durable id', () => {

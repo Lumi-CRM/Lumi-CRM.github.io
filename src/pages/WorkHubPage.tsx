@@ -40,6 +40,9 @@ const TodayView = () => {
   const { data, loading, error, reload } = useCrmOverview(true)
   const [completingId, setCompletingId] = useState('')
   const today = localDateKey()
+  const tomorrowDate = new Date()
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1)
+  const tomorrow = `${tomorrowDate.getFullYear()}-${String(tomorrowDate.getMonth() + 1).padStart(2, '0')}-${String(tomorrowDate.getDate()).padStart(2, '0')}`
 
   const agenda = useMemo(() => [
     ...data.tasks
@@ -49,6 +52,11 @@ const TodayView = () => {
       .filter(event => !event.isCompleted && event.eventDate <= today)
       .map(event => ({ id: event.id, kind: 'event' as const, title: event.title, date: event.eventDate, time: event.eventTime, overdue: event.eventDate < today, subtitle: event.type === 'call' ? 'Звонок' : 'Встреча' })),
   ].sort((left, right) => `${left.date || today} ${left.time || ''}`.localeCompare(`${right.date || today} ${right.time || ''}`)), [data.events, data.tasks, today])
+
+  const tomorrowAgenda = useMemo(() => [
+    ...data.tasks.filter(task => !task.isCompleted && task.dueDate === tomorrow).map(task => ({ id: task.id, title: task.title, time: task.dueTime, subtitle: 'Задача' })),
+    ...data.events.filter(event => !event.isCompleted && event.eventDate === tomorrow).map(event => ({ id: event.id, title: event.title, time: event.eventTime, subtitle: event.type === 'call' ? 'Звонок' : 'Встреча' })),
+  ].sort((left, right) => (left.time || '').localeCompare(right.time || '')), [data.events, data.tasks, tomorrow])
 
   const complete = async (item: (typeof agenda)[number]) => {
     if (!user) return
@@ -64,10 +72,11 @@ const TodayView = () => {
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="lumi-panel rounded-2xl border p-5"><p className="lumi-muted text-sm">На сегодня и просрочено</p><p className="lumi-text mt-2 text-3xl font-bold">{loading ? '—' : agenda.length}</p></div>
         <div className="lumi-panel rounded-2xl border p-5"><p className="lumi-muted text-sm">Просрочено</p><p className="mt-2 text-3xl font-bold text-red-400">{loading ? '—' : agenda.filter(item => item.overdue).length}</p></div>
         <div className="lumi-panel rounded-2xl border p-5"><p className="lumi-muted text-sm">Текущая дата</p><p className="lumi-text mt-2 text-xl font-bold">{new Date().toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}</p></div>
+        <div className="lumi-panel rounded-2xl border p-5"><p className="lumi-muted text-sm">Выполнено сегодня</p><p className="mt-2 text-3xl font-bold text-emerald-400">{loading ? '—' : data.completedToday}</p></div>
       </div>
 
       {error && <div className="flex flex-col gap-3 rounded-xl border border-red-800/50 bg-red-950/25 px-4 py-3 text-sm text-red-300 sm:flex-row sm:items-center sm:justify-between"><span>{error}</span><button type="button" onClick={() => void reload()} className="lumi-control inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 font-semibold"><RefreshCw className="h-4 w-4" />Повторить</button></div>}
@@ -79,6 +88,11 @@ const TodayView = () => {
           const key = `${item.kind}-${item.id}`
           return <div key={key} className="lumi-panel-muted flex items-center gap-3 rounded-xl border p-4"><div className={`rounded-xl p-2.5 ${item.overdue ? 'bg-red-500/10 text-red-400' : 'lumi-accent-soft'}`}><ItemIcon className="h-5 w-5" /></div><div className="min-w-0 flex-1"><p className="lumi-text truncate font-medium">{item.title}</p><p className={`mt-1 text-sm ${item.overdue ? 'text-red-400' : 'lumi-muted'}`}>{item.subtitle} · {formatAgendaDate(item.date, item.time)}</p></div><button type="button" onClick={() => void complete(item)} disabled={completingId === key} className="lumi-control rounded-xl p-2.5 text-emerald-400 disabled:opacity-50" aria-label={`Выполнить: ${item.title}`}><CheckCircle2 className="h-5 w-5" /></button></div>
         })}</div>}
+      </section>
+
+      <section className="lumi-panel rounded-2xl border p-4 sm:p-6">
+        <div className="mb-5"><h2 className="lumi-text text-xl font-semibold">План на завтра</h2><p className="lumi-muted mt-1 text-sm">Задачи, звонки и встречи, которые уже запланированы.</p></div>
+        {tomorrowAgenda.length === 0 ? <div className="lumi-border lumi-muted rounded-xl border border-dashed py-10 text-center text-sm">На завтра пока ничего не запланировано</div> : <div className="grid gap-3 md:grid-cols-2">{tomorrowAgenda.map(item => <div key={`${item.subtitle}-${item.id}`} className="lumi-panel-muted flex items-center gap-3 rounded-xl border p-4"><CalendarDays className="lumi-accent-text h-5 w-5" /><div className="min-w-0"><p className="lumi-text truncate font-medium">{item.title}</p><p className="lumi-muted mt-1 text-sm">{item.subtitle}{item.time ? ` · ${item.time.slice(0, 5)}` : ''}</p></div></div>)}</div>}
       </section>
     </div>
   )
