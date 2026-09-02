@@ -19,6 +19,7 @@ const RESTORE_TABLE_ORDER: WorkspaceBackupTable[] = [
   'events',
   'deals',
   'deal_participants',
+  'property_owners',
   'property_details',
   'client_requirements',
   'monthly_plans',

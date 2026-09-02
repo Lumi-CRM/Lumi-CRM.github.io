@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Building2, FileText, Home, MapPin, Megaphone, Settings2, Tag, WalletCards, X } from 'lucide-react'
+import { Building2, FileText, Home, MapPin, Megaphone, Plus, Settings2, Tag, Trash2, WalletCards, X } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import Modal from './Modal'
 import type { Client, Property } from '../types'
 import { usePropertyCatalog, usePropertyDetails } from '../hooks/usePropertyCatalog'
 import type { PropertyUpsertInput } from '../lib/propertyRecordMapping'
+import { propertyOwnerShareError, type PropertyOwnerAssignment } from '../lib/propertyOwners'
 
 interface PropertyFormProps {
   isOpen: boolean
@@ -14,6 +15,13 @@ interface PropertyFormProps {
 }
 
 type PropertyFormData = PropertyUpsertInput
+
+type PropertyOwnerFormRow = {
+  key: string
+  relationId?: string
+  clientId: string
+  ownershipShare: string
+}
 
 type PropertyDetailsForm = {
   saleType: string
@@ -162,14 +170,16 @@ const Toggle = ({ label, checked, onChange }: { label: string; checked: boolean;
 )
 
 const numberOrNull = (value: string) => value.trim() === '' ? null : Number(value)
+const emptyOwnerRow = (ownershipShare = ''): PropertyOwnerFormRow => ({ key: crypto.randomUUID(), clientId: '', ownershipShare })
 
 const PropertyForm = ({ isOpen, onClose, property, clients = [] }: PropertyFormProps) => {
   const { user } = useAuth()
-  const { saveProperty } = usePropertyCatalog(user?.id)
+  const { data: propertyCatalog, saveProperty } = usePropertyCatalog(user?.id)
   const { data: propertyDetails } = usePropertyDetails(user?.id, property?.id, isOpen)
   const [section, setSection] = useState('deal')
   const [formData, setFormData] = useState<PropertyFormData>(emptyProperty)
   const [details, setDetails] = useState<PropertyDetailsForm>(emptyDetails)
+  const [ownerRows, setOwnerRows] = useState<PropertyOwnerFormRow[]>([emptyOwnerRow('100')])
   const [newTag, setNewTag] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -179,6 +189,7 @@ const PropertyForm = ({ isOpen, onClose, property, clients = [] }: PropertyFormP
     if (!property) {
       setFormData(emptyProperty)
       setDetails(emptyDetails)
+      setOwnerRows([emptyOwnerRow('100')])
       return
     }
 
@@ -193,6 +204,17 @@ const PropertyForm = ({ isOpen, onClose, property, clients = [] }: PropertyFormP
       elevator: property.elevator || false, parking: property.parking || false,
       heating: property.heating || 'central', walls: property.walls || '',
     })
+
+    const savedOwners = propertyCatalog?.propertyOwners[property.id] || []
+    const legacyOwners: PropertyOwnerAssignment[] = savedOwners.length ? savedOwners : property.ownerId
+      ? [{ clientId: property.ownerId, ownershipShare: null, isPrimary: true }]
+      : []
+    setOwnerRows(legacyOwners.length ? legacyOwners.map(owner => ({
+      key: owner.id || crypto.randomUUID(),
+      relationId: owner.id,
+      clientId: owner.clientId,
+      ownershipShare: owner.ownershipShare == null ? '' : String(owner.ownershipShare),
+    })) : [emptyOwnerRow('100')])
 
     if (propertyDetails) {
       const data = propertyDetails as Record<string, any>
@@ -245,10 +267,16 @@ const PropertyForm = ({ isOpen, onClose, property, clients = [] }: PropertyFormP
     } else {
       setDetails(emptyDetails)
     }
-  }, [isOpen, property, propertyDetails])
+  }, [isOpen, property, propertyCatalog?.propertyOwners, propertyDetails])
 
   const updateProperty = <K extends keyof PropertyFormData>(key: K, value: PropertyFormData[K]) => setFormData(current => ({ ...current, [key]: value }))
   const updateDetails = <K extends keyof PropertyDetailsForm>(key: K, value: PropertyDetailsForm[K]) => setDetails(current => ({ ...current, [key]: value }))
+  const availableOwners = (clients.length ? clients : propertyCatalog?.clients || []).filter(client => {
+    const role = formData.listingType === 'rent' ? 'landlord' : 'seller'
+    return client.type === 'seller' || client.roles?.includes(role) || ownerRows.some(owner => owner.clientId === client.id)
+  })
+  const updateOwnerRow = (key: string, patch: Partial<PropertyOwnerFormRow>) => setOwnerRows(current => current.map(row => row.key === key ? { ...row, ...patch } : row))
+  const removeOwnerRow = (key: string) => setOwnerRows(current => current.length > 1 ? current.filter(row => row.key !== key) : [emptyOwnerRow('100')])
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault()
@@ -261,7 +289,27 @@ const PropertyForm = ({ isOpen, onClose, property, clients = [] }: PropertyFormP
       return
     }
 
-    const input = { ...formData, address: composedAddress }
+    const selectedRows = ownerRows.filter(row => row.clientId)
+    if (new Set(selectedRows.map(row => row.clientId)).size !== selectedRows.length) {
+      alert('Один собственник выбран несколько раз.')
+      setSaving(false)
+      return
+    }
+    const owners: PropertyOwnerAssignment[] = selectedRows.map((row, index) => ({
+      id: row.relationId,
+      clientId: row.clientId,
+      ownershipShare: numberOrNull(row.ownershipShare),
+      isPrimary: index === 0,
+      roles: availableOwners.find(client => client.id === row.clientId)?.roles || [],
+    }))
+    const shareError = propertyOwnerShareError(owners)
+    if (shareError) {
+      alert(shareError)
+      setSaving(false)
+      return
+    }
+
+    const input = { ...formData, address: composedAddress, ownerId: owners[0]?.clientId || '' }
     const detailsPayload = {
         sale_type: details.saleType || null,
         first_sale: details.firstSale, auction_sale: details.auctionSale, mortgage_allowed: details.mortgageAllowed,
@@ -295,8 +343,7 @@ const PropertyForm = ({ isOpen, onClose, property, clients = [] }: PropertyFormP
     }
 
     try {
-      const owner = clients.find(client => client.id === formData.ownerId)
-      await saveProperty(input, detailsPayload, property?.id, owner?.roles || [])
+      await saveProperty(input, detailsPayload, property?.id, owners)
       onClose()
     } catch (error) {
       console.error('Property save failed:', error)
@@ -334,10 +381,29 @@ const PropertyForm = ({ isOpen, onClose, property, clients = [] }: PropertyFormP
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <Field label="Операция"><select value={formData.listingType} onChange={e => updateProperty('listingType', e.target.value as 'sale' | 'rent')} className={inputClass}><option value="sale">Продажа</option><option value="rent">Аренда</option></select></Field>
               <Field label="Как работаем с объектом"><select value={formData.workStream} onChange={e => updateProperty('workStream', e.target.value as 'active' | 'cold')} className={inputClass}><option value="active">Мой объект в работе</option><option value="cold">Холодная база / пока только звонки</option></select></Field>
-              <Field label="Собственник"><select value={formData.ownerId} onChange={e => updateProperty('ownerId', e.target.value)} className={inputClass}><option value="">Не выбрано</option>{clients.filter(c => c.type === 'seller').map(c => <option key={c.id} value={c.id}>{c.lastName} {c.firstName} {c.middleName || ''}</option>)}</select></Field>
               <Field label="Статус"><select value={formData.status} onChange={e => updateProperty('status', e.target.value as Property['status'])} className={inputClass}><option value="available">В продаже</option><option value="reserved">Забронирован</option><option value="sold">Продан</option><option value="archived">Архив</option></select></Field>
               <Field label="Тип продажи"><select value={details.saleType} onChange={e => updateDetails('saleType', e.target.value)} className={inputClass}><option value="direct">Свободная (прямая)</option><option value="alternative">Альтернативная</option><option value="assignment">Переуступка</option></select></Field>
               <Field label="Источник объявления"><input value={formData.sourceUrl} onChange={e => updateProperty('sourceUrl', e.target.value)} className={inputClass} placeholder="Ссылка на исходное объявление" /></Field>
+            </div>
+            <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4 sm:p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div><h4 className="font-semibold text-blue-950">Собственники и доли</h4><p className="mt-1 text-sm text-blue-700">Первый в списке считается основным. Долю можно оставить пустой.</p></div>
+                <button type="button" onClick={() => setOwnerRows(current => [...current, emptyOwnerRow()])} className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white"><Plus className="h-4 w-4" />Добавить</button>
+              </div>
+              <div className="mt-4 space-y-3">
+                {ownerRows.map((row, index) => (
+                  <div key={row.key} className="grid grid-cols-1 items-end gap-3 rounded-xl border border-blue-100 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_9rem_auto]">
+                    <Field label={index === 0 ? 'Основной собственник' : `Собственник ${index + 1}`}>
+                      <select value={row.clientId} onChange={event => updateOwnerRow(row.key, { clientId: event.target.value })} className={inputClass}>
+                        <option value="">Не выбрано</option>
+                        {availableOwners.map(owner => <option key={owner.id} value={owner.id} disabled={owner.id !== row.clientId && ownerRows.some(candidate => candidate.clientId === owner.id)}>{owner.lastName} {owner.firstName} {owner.middleName || ''}{owner.phone ? ` · ${owner.phone}` : ''}</option>)}
+                      </select>
+                    </Field>
+                    <Field label="Доля, %" hint="Необязательно"><input type="number" min="0" max="100" step="0.01" value={row.ownershipShare} onChange={event => updateOwnerRow(row.key, { ownershipShare: event.target.value })} className={inputClass} placeholder="Не указана" /></Field>
+                    <button type="button" onClick={() => removeOwnerRow(row.key)} className="mb-0.5 rounded-xl bg-red-500/10 p-3 text-red-500 disabled:cursor-not-allowed disabled:opacity-40" disabled={ownerRows.length === 1} aria-label={`Удалить собственника ${index + 1}`}><Trash2 className="h-5 w-5" /></button>
+                  </div>
+                ))}
+              </div>
             </div>
             {formData.listingType === 'rent' && <div className="rounded-2xl border border-violet-200 bg-violet-50/60 p-5"><h4 className="mb-4 font-semibold text-violet-950">Условия аренды</h4><div className="grid grid-cols-1 gap-4 md:grid-cols-3"><Field label="Срок аренды"><select value={details.rentalDuration} onChange={e => updateDetails('rentalDuration', e.target.value)} className={inputClass}><option value="long_term">Долгосрочная</option><option value="short_term">Краткосрочная</option><option value="daily">Посуточная</option></select></Field><Field label="Готов к сдаче с"><input type="date" value={details.availableFrom} onChange={e => updateDetails('availableFrom', e.target.value)} className={inputClass} /></Field><Field label="Размер залога, ₽"><input type="number" value={details.depositAmount} onChange={e => updateDetails('depositAmount', e.target.value)} className={inputClass} /></Field><Field label="Предоплата, месяцев"><input type="number" min="0" value={details.prepaymentMonths} onChange={e => updateDetails('prepaymentMonths', e.target.value)} className={inputClass} /></Field><Field label="Коммунальные услуги"><input value={details.utilities} onChange={e => updateDetails('utilities', e.target.value)} className={inputClass} placeholder="Включены / отдельно" /></Field><Field label="Оплата счётчиков"><input value={details.meters} onChange={e => updateDetails('meters', e.target.value)} className={inputClass} /></Field><Field label="Комиссия с арендатора, %"><input type="number" value={details.tenantCommissionPercent} onChange={e => updateDetails('tenantCommissionPercent', e.target.value)} className={inputClass} /></Field><Field label="Доля комиссии агенту, %"><input type="number" value={details.tenantAgentCommissionPercent} onChange={e => updateDetails('tenantAgentCommissionPercent', e.target.value)} className={inputClass} /></Field></div><div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2"><Toggle label="Залог предусмотрен" checked={details.depositRequired} onChange={v => updateDetails('depositRequired', v)} /><Toggle label="Собственник платит комиссию" checked={details.ownerRentCommission} onChange={v => updateDetails('ownerRentCommission', v)} /></div></div>}
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2"><Toggle label="Продаётся первый раз" checked={details.firstSale} onChange={v => updateDetails('firstSale', v)} /><Toggle label="Продажа по методике «Аукцион»" checked={details.auctionSale} onChange={v => updateDetails('auctionSale', v)} /><Toggle label="Возможна ипотека" checked={details.mortgageAllowed} onChange={v => updateDetails('mortgageAllowed', v)} /><Toggle label="Собственник платит комиссию" checked={details.ownerPaysCommission} onChange={v => updateDetails('ownerPaysCommission', v)} /><Toggle label="Готов делиться комиссией" checked={details.sharedCommission} onChange={v => updateDetails('sharedCommission', v)} /><Toggle label="Возможен онлайн-показ" checked={details.onlineShowing} onChange={v => updateDetails('onlineShowing', v)} /></div>
@@ -348,7 +414,7 @@ const PropertyForm = ({ isOpen, onClose, property, clients = [] }: PropertyFormP
               <Field label="Тип объекта"><select value={formData.propertyType} onChange={e => updateProperty('propertyType', e.target.value)} className={inputClass}><option>Квартира</option><option>Комната</option><option>Дом</option><option>Участок</option><option>Коммерческая недвижимость</option></select></Field>
               <Field label="Вид квартиры"><select value={details.apartmentType} onChange={e => updateDetails('apartmentType', e.target.value)} className={inputClass}><option value="standard">Стандартная</option><option value="studio">Студия</option><option value="euro">Евроформат</option><option value="free">Свободная планировка</option></select></Field>
               <Field label="Количество комнат"><input type="number" min="0" value={formData.rooms ?? ''} onChange={e => updateProperty('rooms', e.target.value ? Number(e.target.value) : undefined)} className={inputClass} /></Field>
-              <Field label="Доля в квартире, %"><input type="number" min="0" max="100" value={details.ownershipShare} onChange={e => updateDetails('ownershipShare', e.target.value)} className={inputClass} /></Field>
+              <Field label="Продаваемая доля объекта, %"><input type="number" min="0" max="100" value={details.ownershipShare} onChange={e => updateDetails('ownershipShare', e.target.value)} className={inputClass} /></Field>
               <Field label="Этажей в квартире"><input type="number" min="1" value={details.apartmentLevels} onChange={e => updateDetails('apartmentLevels', e.target.value)} className={inputClass} /></Field>
               <Field label="Этаж / всего"><div className="grid grid-cols-2 gap-2"><input type="number" value={formData.floor ?? ''} onChange={e => updateProperty('floor', e.target.value ? Number(e.target.value) : undefined)} className={inputClass} /><input type="number" value={formData.totalFloors ?? ''} onChange={e => updateProperty('totalFloors', e.target.value ? Number(e.target.value) : undefined)} className={inputClass} /></div></Field>
               <Field label="Стоимость, ₽"><input type="number" min="0" value={formData.price ?? ''} onChange={e => updateProperty('price', e.target.value ? Number(e.target.value) : undefined)} className={inputClass} /></Field>

@@ -63,10 +63,10 @@ const OwnerForm = ({ isOpen, onClose, owner, mode = 'sale' }: OwnerFormProps) =>
 
   useEffect(() => {
     if (!isOpen || !owner) return
-    const linked = properties.find(item => item.ownerId === owner.id)
+    const linked = properties.find(item => (propertyQuery.data?.propertyOwners[item.id] || []).some(propertyOwner => propertyOwner.clientId === owner.id))
     setPropertyId(linked?.id || '')
     setPropertyAddress(linked?.address || '')
-  }, [isOpen, owner, properties])
+  }, [isOpen, owner, properties, propertyQuery.data?.propertyOwners])
 
   useEffect(() => {
     if (!owner) {
@@ -122,6 +122,7 @@ const OwnerForm = ({ isOpen, onClose, owner, mode = 'sale' }: OwnerFormProps) =>
         mode,
         propertyId: propertyId || undefined,
         propertyAddress: propertyAddress.trim() || properties.find(item => item.id === propertyId)?.address,
+        primaryOwnerId: properties.find(item => item.id === propertyId)?.ownerId,
       }, owner?.id)
       onClose()
     } catch (error) {
@@ -236,9 +237,7 @@ const OwnerForm = ({ isOpen, onClose, owner, mode = 'sale' }: OwnerFormProps) =>
                 className="lumi-control mt-2 w-full rounded-xl px-4 py-3 outline-none"
               >
                 <option value="">Создать по адресу ниже</option>
-                {properties
-                  .filter(item => !item.ownerId || item.ownerId === owner?.id)
-                  .map(item => <option key={item.id} value={item.id}>{item.address}</option>)}
+                {properties.map(item => <option key={item.id} value={item.id}>{item.address}</option>)}
               </select>
             </label>
             <label className="lumi-muted-strong text-sm font-medium">Адрес объекта

@@ -2,6 +2,7 @@ import type { Property } from '../types'
 import { moveToTrash } from './trash'
 import { supabase } from './supabase'
 import type { PropertyUpsertInput } from './propertyRecordMapping'
+import { makePropertyOwnerRows, normalizePropertyOwners, type PropertyOwnerAssignment } from './propertyOwners'
 
 export type PropertyDetailsRecord = Record<string, unknown>
 
@@ -41,16 +42,55 @@ export const fetchPropertyDetails = async (userId: string, propertyId: string) =
   return data as PropertyDetailsRecord | null
 }
 
+export const replacePropertyOwners = async (
+  userId: string,
+  propertyId: string,
+  owners: PropertyOwnerAssignment[],
+) => {
+  const normalized = normalizePropertyOwners(owners)
+  const { error: deleteError } = await supabase
+    .from('property_owners')
+    .delete()
+    .eq('property_id', propertyId)
+    .eq('user_id', userId)
+  if (deleteError) throw deleteError
+  if (!normalized.length) return []
+
+  const rows = makePropertyOwnerRows(userId, propertyId, normalized)
+  const { error: insertError } = await supabase.from('property_owners').insert(rows)
+  if (insertError) throw insertError
+  return rows
+}
+
+export const addPropertyOwner = async (
+  userId: string,
+  propertyId: string,
+  clientId: string,
+  isPrimary = false,
+) => {
+  const { error } = await supabase.from('property_owners').upsert({
+    user_id: userId,
+    property_id: propertyId,
+    client_id: clientId,
+    ownership_share: null,
+    is_primary: isPrimary,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'property_id,client_id' })
+  if (error) throw error
+}
+
 export const saveProperty = async (
   userId: string,
   input: PropertyUpsertInput,
   details: PropertyDetailsRecord,
   propertyId?: string,
   newPropertyId?: string,
-  ownerRoles: string[] = [],
+  owners: PropertyOwnerAssignment[] = [],
 ) => {
   const id = propertyId || newPropertyId || crypto.randomUUID()
-  const payload = propertyPayload(input)
+  const normalizedOwners = normalizePropertyOwners(owners)
+  const primaryOwner = normalizedOwners.find(owner => owner.isPrimary) || normalizedOwners[0]
+  const payload = propertyPayload({ ...input, ownerId: primaryOwner?.clientId || '' })
   const result = propertyId
     ? await supabase.from('properties').update(payload).eq('id', propertyId).eq('user_id', userId)
     : await supabase.from('properties').insert({ ...payload, id, user_id: userId, is_favorite: false })
@@ -67,15 +107,24 @@ export const saveProperty = async (
     throw detailsError
   }
 
-  if (input.ownerId) {
+  try {
+    await replacePropertyOwners(userId, id, normalizedOwners)
+  } catch (ownerError) {
+    if (!propertyId) await supabase.from('properties').delete().eq('id', id).eq('user_id', userId)
+    throw ownerError
+  }
+
+  if (normalizedOwners.length) {
     const role = input.listingType === 'rent' ? 'landlord' : 'seller'
-    const roles = Array.from(new Set([...ownerRoles, role]))
-    const { error: roleError } = await supabase
-      .from('clients')
-      .update({ roles })
-      .eq('id', input.ownerId)
-      .eq('user_id', userId)
-    if (roleError) console.warn('Owner role update failed:', roleError)
+    await Promise.all(normalizedOwners.map(async owner => {
+      const roles = Array.from(new Set([...(owner.roles || []), role]))
+      const { error: roleError } = await supabase
+        .from('clients')
+        .update({ roles })
+        .eq('id', owner.clientId)
+        .eq('user_id', userId)
+      if (roleError) console.warn('Owner role update failed:', roleError)
+    }))
   }
   return id
 }

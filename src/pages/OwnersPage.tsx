@@ -27,6 +27,7 @@ const OwnersPage = ({ mode = 'sale' }: OwnersPageProps) => {
   const propertyQuery = usePropertyCatalog(user?.id)
   const owners = useMemo(() => (clientQuery.data || []).filter(item => item.roles?.includes(role)), [clientQuery.data, role])
   const properties = propertyQuery.data?.properties || []
+  const propertyOwners = propertyQuery.data?.propertyOwners || {}
   const [selectedOwner, setSelectedOwner] = useState<Client | null>(null)
   const [query, setQuery] = useState('')
   const [formOpen, setFormOpen] = useState(false)
@@ -48,8 +49,8 @@ const OwnersPage = ({ mode = 'sale' }: OwnersPageProps) => {
   }, [owners, query])
 
   const ownerProperties = useMemo(() => selectedOwner
-    ? properties.filter(property => property.ownerId === selectedOwner.id && property.listingType === mode)
-    : [], [mode, properties, selectedOwner])
+    ? properties.filter(property => property.listingType === mode && (propertyOwners[property.id] || []).some(owner => owner.clientId === selectedOwner.id))
+    : [], [mode, properties, propertyOwners, selectedOwner])
 
   const toggleFavorite = async (owner: Client) => {
     setActionError('')

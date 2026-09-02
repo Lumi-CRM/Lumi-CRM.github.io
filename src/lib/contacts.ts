@@ -4,6 +4,7 @@ import { mapClientRow } from './propertyMapping'
 import { moveToTrash } from './trash'
 import type { Client } from '../types'
 import type { ContactInput } from './contactRecordMapping'
+import { addPropertyOwner } from './properties'
 
 export type { ContactInput } from './contactRecordMapping'
 
@@ -37,6 +38,7 @@ export type OwnerPropertyInput = {
   propertyId?: string
   propertyAddress?: string
   newPropertyId?: string
+  primaryOwnerId?: string
 }
 
 const contactPayload = (input: ContactInput) => ({
@@ -130,13 +132,16 @@ export const saveOwnerRecord = async (
   const id = await saveContact(userId, input, contactId, newContactId)
   const address = property.propertyAddress?.trim()
   if (property.propertyId) {
-    const payload: Record<string, unknown> = { owner_id: id, updated_at: new Date().toISOString() }
+    const payload: Record<string, unknown> = { updated_at: new Date().toISOString() }
+    if (!property.primaryOwnerId) payload.owner_id = id
     if (address) payload.address = address
     const { error } = await supabase.from('properties').update(payload).eq('id', property.propertyId).eq('user_id', userId)
     if (error) throw error
+    await addPropertyOwner(userId, property.propertyId, id, !property.primaryOwnerId)
   } else if (address) {
+    const createdPropertyId = property.newPropertyId || crypto.randomUUID()
     const { error } = await supabase.from('properties').insert({
-      id: property.newPropertyId || crypto.randomUUID(),
+      id: createdPropertyId,
       user_id: userId,
       owner_id: id,
       address,
@@ -147,6 +152,7 @@ export const saveOwnerRecord = async (
       is_favorite: false,
     })
     if (error) throw error
+    await addPropertyOwner(userId, createdPropertyId, id, true)
   }
   return id
 }

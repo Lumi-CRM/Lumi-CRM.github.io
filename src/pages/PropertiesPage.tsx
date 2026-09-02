@@ -190,7 +190,7 @@ const PropertiesPage = () => {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         property={editingProperty}
-        clients={clients.filter(c => c.type === 'seller')}
+        clients={clients}
       />
     </div>
   )

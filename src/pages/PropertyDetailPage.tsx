@@ -16,8 +16,11 @@ const PropertyDetailPage = () => {
   const { user } = useAuth()
   const { data, isPending: loading, removeProperty } = usePropertyCatalog(user?.id)
   const property = data?.properties.find(item => item.id === id) || null
-  const owners = data?.clients.filter(client => client.type === 'seller') || []
-  const owner = owners.find(item => item.id === property?.ownerId) || null
+  const ownerLinks = property ? data?.propertyOwners[property.id] || [] : []
+  const owners = ownerLinks.flatMap(link => {
+    const client = data?.clients.find(item => item.id === link.clientId)
+    return client ? [{ client, ...link }] : []
+  })
   const [activeTab, setActiveTab] = useState<'info' | 'photos' | 'documents' | 'showings'>('info')
   const [isEditModalOpen, setIsEditModalOpen] = useState(false)
 
@@ -241,21 +244,18 @@ const PropertyDetailPage = () => {
           </div>
 
           <div className="space-y-6">
-            {owner && (
+            {owners.length > 0 && (
               <div className="bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Собственник</h3>
-                <div className="space-y-3">
-                  <p className="text-gray-900 dark:text-white font-medium">
-                    {owner.lastName} {owner.firstName} {owner.middleName || ''}
-                  </p>
-                  <p className="text-gray-600 dark:text-gray-300 text-sm flex items-center gap-2">
-                    Телефон: {owner.phone}
-                  </p>
-                  {owner.email && (
-                    <p className="text-gray-600 dark:text-gray-300 text-sm">
-                      Email: {owner.email}
-                    </p>
-                  )}
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Собственники</h3>
+                <div className="divide-y divide-gray-100 dark:divide-gray-700">
+                  {owners.map(({ client: owner, ownershipShare, isPrimary }) => <div key={owner.id} className="py-3 first:pt-0 last:pb-0">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-gray-900 dark:text-white font-medium">{owner.lastName} {owner.firstName} {owner.middleName || ''}</p>
+                      <div className="flex gap-2">{isPrimary && <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">Основной</span>}{ownershipShare != null && <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">Доля {ownershipShare}%</span>}</div>
+                    </div>
+                    <p className="text-gray-600 dark:text-gray-300 text-sm">Телефон: {owner.phone || 'не указан'}</p>
+                    {owner.email && <p className="text-gray-600 dark:text-gray-300 text-sm">Email: {owner.email}</p>}
+                  </div>)}
                 </div>
               </div>
             )}
@@ -294,7 +294,7 @@ const PropertyDetailPage = () => {
         isOpen={isEditModalOpen} 
         onClose={() => setIsEditModalOpen(false)}
         property={property}
-        clients={owners}
+        clients={data?.clients || []}
       />
     </div>
   )

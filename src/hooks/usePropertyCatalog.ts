@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import type { Property } from '../types'
 import { fetchPropertyCatalog, type PropertyCatalog } from '../lib/propertyCatalog'
 import { propertyFromInput, type PropertyUpsertInput } from '../lib/propertyRecordMapping'
+import { normalizePropertyOwners, type PropertyOwnerAssignment } from '../lib/propertyOwners'
 import {
   archiveProperty,
   fetchPropertyDetails,
@@ -33,7 +34,7 @@ export const usePropertyCatalog = (userId?: string) => {
   const beginOptimisticUpdate = async (updater: (catalog: PropertyCatalog) => PropertyCatalog): Promise<PropertyContext> => {
     await queryClient.cancelQueries({ queryKey })
     const previous = queryClient.getQueryData<PropertyCatalog>(queryKey)
-    queryClient.setQueryData<PropertyCatalog>(queryKey, current => updater(current || { properties: [], clients: [] }))
+    queryClient.setQueryData<PropertyCatalog>(queryKey, current => updater(current || { properties: [], clients: [], propertyOwners: {} }))
     return { previous }
   }
   const restore = (context?: PropertyContext) => {
@@ -56,20 +57,20 @@ export const usePropertyCatalog = (userId?: string) => {
   }
 
   const saveMutation = useMutation({
-    mutationFn: ({ input, details, propertyId, id, ownerRoles }: {
+    mutationFn: ({ input, details, propertyId, id, owners }: {
       input: PropertyUpsertInput
       details: PropertyDetailsRecord
       propertyId?: string
       id: string
-      ownerRoles: string[]
-    }) => saveProperty(userId!, input, details, propertyId, id, ownerRoles),
-    onMutate: ({ input, propertyId, id }) => beginOptimisticUpdate(catalog => {
+      owners: PropertyOwnerAssignment[]
+    }) => saveProperty(userId!, input, details, propertyId, id, owners),
+    onMutate: ({ input, propertyId, id, owners }) => beginOptimisticUpdate(catalog => {
       const previous = catalog.properties.find(property => property.id === propertyId)
       const next = propertyFromInput(userId!, id, input, previous)
       const properties = previous
         ? catalog.properties.map(property => property.id === propertyId ? next : property)
         : [next, ...catalog.properties]
-      return { ...catalog, properties }
+      return { ...catalog, properties, propertyOwners: { ...catalog.propertyOwners, [id]: normalizePropertyOwners(owners) } }
     }),
     onError: (_error, _variables, context) => restore(context),
     onSettled: async (_data, _error, variables) => {
@@ -112,8 +113,10 @@ export const usePropertyCatalog = (userId?: string) => {
 
   return {
     ...query,
-    saveProperty: (input: PropertyUpsertInput, details: PropertyDetailsRecord, propertyId?: string, ownerRoles: string[] = []) =>
-      saveMutation.mutateAsync({ input, details, propertyId, id: propertyId || crypto.randomUUID(), ownerRoles }),
+    saveProperty: (input: PropertyUpsertInput, details: PropertyDetailsRecord, propertyId?: string, owners: PropertyOwnerAssignment[] = []) => {
+      const preparedOwners = owners.map(owner => ({ ...owner, id: owner.id || crypto.randomUUID() }))
+      return saveMutation.mutateAsync({ input, details, propertyId, id: propertyId || crypto.randomUUID(), owners: preparedOwners })
+    },
     toggleFavorite: favoriteMutation.mutateAsync,
     archiveProperty: archiveMutation.mutateAsync,
     removeProperty: trashMutation.mutateAsync,

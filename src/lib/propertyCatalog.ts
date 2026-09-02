@@ -1,15 +1,22 @@
 import type { Client, Property } from '../types'
 import { createSignedFileUrls, type CrmFileRecord } from './files'
 import { mapClientRow, mapPropertyRow } from './propertyMapping'
+import {
+  indexPropertyOwners,
+  propertyOwnersWithLegacyFallback,
+  type PropertyOwnerAssignment,
+  type PropertyOwnerRow,
+} from './propertyOwners'
 import { supabase } from './supabase'
 
 export type PropertyCatalog = {
   properties: Property[]
   clients: Client[]
+  propertyOwners: Record<string, PropertyOwnerAssignment[]>
 }
 
 export const fetchPropertyCatalog = async (userId: string): Promise<PropertyCatalog> => {
-  const [propertiesResult, clientsResult] = await Promise.all([
+  const [propertiesResult, clientsResult, ownersResult] = await Promise.all([
     supabase
       .from('properties')
       .select('*')
@@ -23,13 +30,24 @@ export const fetchPropertyCatalog = async (userId: string): Promise<PropertyCata
       .eq('user_id', userId)
       .is('deleted_at', null)
       .order('created_at', { ascending: false }),
+    supabase
+      .from('property_owners')
+      .select('id,property_id,client_id,ownership_share,is_primary')
+      .eq('user_id', userId)
+      .order('is_primary', { ascending: false })
+      .order('created_at', { ascending: true }),
   ])
   if (propertiesResult.error) throw propertiesResult.error
 
   const propertyRows = propertiesResult.data || []
   const properties = propertyRows.map(mapPropertyRow)
   const clients = clientsResult.error ? [] : (clientsResult.data || []).map(mapClientRow)
-  if (properties.length === 0) return { properties, clients }
+  const indexedOwners = ownersResult.error ? new Map() : indexPropertyOwners((ownersResult.data || []) as PropertyOwnerRow[])
+  const propertyOwners = Object.fromEntries(properties.map(property => [
+    property.id,
+    propertyOwnersWithLegacyFallback(property, indexedOwners.get(property.id) || []),
+  ]))
+  if (properties.length === 0) return { properties, clients, propertyOwners }
 
   try {
     const { data: mediaRows, error: mediaError } = await supabase
@@ -40,7 +58,7 @@ export const fetchPropertyCatalog = async (userId: string): Promise<PropertyCata
       .in('property_id', properties.map(property => property.id))
       .order('is_primary', { ascending: false })
       .order('created_at', { ascending: true })
-    if (mediaError || !mediaRows?.length) return { properties, clients }
+    if (mediaError || !mediaRows?.length) return { properties, clients, propertyOwners }
 
     const covers = new Map<string, CrmFileRecord>()
     for (const file of mediaRows as CrmFileRecord[]) {
@@ -49,12 +67,13 @@ export const fetchPropertyCatalog = async (userId: string): Promise<PropertyCata
     const urls = await createSignedFileUrls(Array.from(covers.values()))
     return {
       clients,
+      propertyOwners,
       properties: properties.map(property => {
         const cover = covers.get(property.id)
         return cover ? { ...property, coverUrl: urls.get(cover.storage_path) } : property
       }),
     }
   } catch {
-    return { properties, clients }
+    return { properties, clients, propertyOwners }
   }
 }

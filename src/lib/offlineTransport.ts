@@ -55,6 +55,7 @@ const UUID_TABLES = new Set([
   'events',
   'deals',
   'deal_participants',
+  'property_owners',
   'crm_activities',
   'crm_files',
   'client_requirements',
@@ -522,6 +523,7 @@ export const getOfflineQueueIssues = async (userId: string): Promise<OfflineQueu
 
 const conflictFields: Record<string, string> = {
   property_details: 'property_id',
+  property_owners: 'property_id,client_id',
   client_requirements: 'client_id,purpose',
   property_shares: 'user_id,property_id',
   push_subscriptions: 'user_id,endpoint',
