@@ -3,7 +3,7 @@ import { AlertTriangle, Check, Cloud, CloudOff, HardDriveDownload, RefreshCw, Wi
 import { useAuth } from '../context/AuthContext'
 import { flushOfflineQueue, getOfflineQueueCount, getOfflineQueueIssues, type OfflineQueueIssue, type OfflineStatus } from '../lib/offlineTransport'
 import { flushOfflineFiles, getOfflineFileQueueCount, prefetchCrmFiles } from '../lib/offlineFiles'
-import { checkCloudConnection, supabase, warmOfflineWorkspace } from '../lib/supabase'
+import { checkCloudConnection, checkCloudSession, supabase, warmOfflineWorkspace } from '../lib/supabase'
 import { describeQueueIssue } from '../lib/syncDiagnostics'
 import AnchoredPopover from './AnchoredPopover'
 
@@ -56,6 +56,13 @@ const OfflineSyncStatus = () => {
       if (!cloudAvailable) {
         const pending = await refresh()
         setStatus(previous => ({ ...previous, online: false, pending, syncing: false, error: 'Интернет есть, но сервер LumiCRM не отвечает' }))
+        return
+      }
+      const cloudSession = await checkCloudSession(user.id)
+      if (!cloudSession.valid) {
+        cloudOnlineRef.current = false
+        const pending = await refresh()
+        setStatus(previous => ({ ...previous, online: false, pending, syncing: false, error: cloudSession.message }))
         return
       }
       await flushOfflineQueue()
@@ -154,12 +161,13 @@ const OfflineSyncStatus = () => {
 
   if (!user) return null
 
+  const sessionProblem = Boolean(status.error?.includes('сессия') || status.error?.includes('Профиль'))
   const state = !navigator.onLine || !status.online
     ? 'offline'
     : status.syncing || status.pending > 0 ? 'syncing' : 'synced'
   const Icon = state === 'offline' ? CloudOff : state === 'syncing' ? RefreshCw : Check
   const label = state === 'offline'
-    ? 'Облако недоступно'
+    ? sessionProblem ? 'Требуется вход' : 'Облако недоступно'
     : state === 'syncing' ? status.pending ? `В очереди: ${status.pending}` : 'Проверяем облако' : 'В облаке'
   const iconClass = state === 'offline' ? 'text-amber-400' : state === 'syncing' ? 'text-sky-400' : 'text-emerald-400'
 
@@ -174,7 +182,7 @@ const OfflineSyncStatus = () => {
       <AnchoredPopover open={open} anchorRef={triggerRef} onClose={() => setOpen(false)} width={340} ariaLabel="Состояние облака" className="overflow-y-auto p-4">
         <div className="flex items-start gap-3">
           <div className={`rounded-xl p-3 ${state === 'offline' ? 'bg-amber-500/10' : 'lumi-accent-soft'}`}><Cloud className={`h-5 w-5 ${iconClass}`} /></div>
-          <div className="min-w-0"><p className="lumi-text font-semibold">{label}</p><p className="lumi-muted mt-1 text-xs leading-5">{state === 'offline' ? 'Работайте дальше: изменения остаются на устройстве и отправятся после восстановления связи.' : 'Данные этого устройства синхронизируются с вашим защищённым офисом.'}</p></div>
+          <div className="min-w-0"><p className="lumi-text font-semibold">{label}</p><p className="lumi-muted mt-1 text-xs leading-5">{sessionProblem ? 'Локальная копия доступна, но облачные чтение и сохранение сейчас не подтверждены.' : state === 'offline' ? 'Работайте дальше: изменения остаются на устройстве и отправятся после восстановления связи.' : 'Данные этого устройства синхронизируются с вашим защищённым офисом.'}</p></div>
         </div>
 
         <div className="lumi-panel-muted mt-4 space-y-3 rounded-xl border p-3 text-xs">

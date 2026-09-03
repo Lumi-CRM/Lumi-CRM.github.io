@@ -13,12 +13,14 @@ import {
   Home,
   Image,
   LogOut,
+  Menu,
   Phone,
   RefreshCw,
   Settings,
   Star,
   Trash2,
   Users,
+  X,
 } from 'lucide-react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
@@ -74,6 +76,18 @@ const Dashboard = ({ children }: DashboardProps) => {
   const [dashboardMode, setDashboardMode] = useState<'sale' | 'rent' | 'mortgage'>('sale')
   const [syncRevision, setSyncRevision] = useState(0)
   const [analyticsReady, setAnalyticsReady] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+
+  useEffect(() => {
+    setMobileMenuOpen(false)
+  }, [location.pathname])
+
+  useEffect(() => {
+    if (!mobileMenuOpen) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = previousOverflow }
+  }, [mobileMenuOpen])
 
   useEffect(() => {
     if (!isHome) return
@@ -412,8 +426,17 @@ const Dashboard = ({ children }: DashboardProps) => {
 
       <main className={`flex min-w-0 flex-1 flex-col overflow-hidden ${user?.preferences.navigationPosition === 'right' ? 'order-1' : 'order-2'}`}>
         <header className="lumi-header relative z-[60] flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 backdrop-blur md:px-8 md:py-4">
-          <div className="order-2 w-full sm:order-none sm:max-w-md"><GlobalSearch /></div>
-          <div className="ml-auto flex items-center gap-2 sm:gap-4">
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(true)}
+            className="lumi-control order-1 inline-flex rounded-xl p-2.5 md:hidden"
+            aria-label="Открыть главное меню"
+            aria-expanded={mobileMenuOpen}
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <div className="order-3 w-full md:order-none md:max-w-md"><GlobalSearch /></div>
+          <div className="order-2 ml-auto flex items-center gap-2 sm:gap-4 md:order-none">
             <OfflineSyncStatus />
             <InstallAppButton compact />
             <button type="button" onClick={() => void printCurrentPage()} className="lumi-control hidden rounded-xl p-2.5 sm:inline-flex" title="Сохранить страницу как PDF"><FileDown className="h-5 w-5" /></button>
@@ -428,7 +451,50 @@ const Dashboard = ({ children }: DashboardProps) => {
         </div>
       </main>
 
-      <nav className="lumi-header lumi-border fixed inset-x-0 bottom-0 z-[70] grid grid-cols-5 gap-1 border-t p-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] md:hidden">
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-[100] md:hidden" role="dialog" aria-modal="true" aria-label="Главное меню">
+          <button type="button" className="absolute inset-0 bg-black/65" onClick={() => setMobileMenuOpen(false)} aria-label="Закрыть главное меню" />
+          <aside className="lumi-sidebar absolute inset-y-0 left-0 flex w-[min(88vw,20rem)] flex-col border-r shadow-2xl">
+            <div className="lumi-border flex items-center justify-between border-b px-5 py-4">
+              <Link to="/" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3">
+                <img src={logoLight} alt="LumiCRM" className="lumi-logo h-8 w-auto object-contain" />
+              </Link>
+              <button type="button" onClick={() => setMobileMenuOpen(false)} className="lumi-control rounded-xl p-2.5" aria-label="Закрыть главное меню"><X className="h-5 w-5" /></button>
+            </div>
+            <nav className="min-h-0 flex-1 space-y-5 overflow-y-auto px-3 py-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+              {desktopNavigationGroups.map(group => (
+                <section key={group.id}>
+                  <p className="lumi-muted mb-1 px-4 text-[0.65rem] font-semibold uppercase tracking-[0.16em]">{group.label}</p>
+                  <div className="space-y-1">
+                    {group.items.map(item => {
+                      const Icon = navigationIcons[item.id]
+                      const active = isNavigationItemActive(location.pathname, item)
+                      return (
+                        <button
+                          type="button"
+                          key={item.id}
+                          onClick={() => { setMobileMenuOpen(false); navigate(item.id) }}
+                          onPointerEnter={() => preloadRoute(item.id)}
+                          onFocus={() => preloadRoute(item.id)}
+                          className={`flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left text-sm transition ${active ? 'lumi-nav-item-active font-medium' : 'lumi-nav-item'}`}
+                        >
+                          <Icon className="h-5 w-5 shrink-0" />
+                          <span>{item.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </section>
+              ))}
+            </nav>
+            <div className="lumi-border border-t p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+              <button type="button" onClick={() => void handleLogout()} className="flex w-full items-center gap-3 rounded-xl px-4 py-3 text-sm text-red-400 transition hover:bg-red-500/10"><LogOut className="h-5 w-5" />Выйти</button>
+            </div>
+          </aside>
+        </div>
+      )}
+
+      <nav className="lumi-mobile-nav lumi-header lumi-border fixed inset-x-0 bottom-0 z-[70] border-t p-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] md:hidden" aria-label="Основная мобильная навигация">
         {mobileNavigation.map(item => {
           const Icon = navigationIcons[item.id]
           const active = isNavigationItemActive(location.pathname, item)

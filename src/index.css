@@ -170,6 +170,21 @@ body {
   background: var(--lumi-header);
 }
 
+.lumi-mobile-nav {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: center;
+  min-height: calc(4.25rem + env(safe-area-inset-bottom));
+  max-height: calc(5.25rem + env(safe-area-inset-bottom));
+  overflow: hidden;
+}
+
+@media (min-width: 768px) {
+  .lumi-mobile-nav {
+    display: none;
+  }
+}
+
 .lumi-panel {
   border-color: var(--lumi-border);
   background: var(--lumi-panel);

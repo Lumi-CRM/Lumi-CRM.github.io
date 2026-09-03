@@ -20,3 +20,12 @@ test('every desktop item has a unique primary route', () => {
   const routes = desktopNavigationGroups.flatMap(group => group.items.map(item => item.id))
   assert.equal(new Set(routes).size, routes.length)
 })
+
+test('mobile drawer exposes every workspace section in addition to the primary bar', () => {
+  const drawerRoutes = desktopNavigationGroups.flatMap(group => group.items.map(item => item.id))
+  for (const item of mobileNavigation) assert.equal(drawerRoutes.includes(item.id), true)
+  assert.deepEqual(
+    drawerRoutes.filter(route => ['/documents', '/gallery', '/favorites', '/archive', '/trash', '/settings'].includes(route)),
+    ['/documents', '/gallery', '/favorites', '/archive', '/trash', '/settings'],
+  )
+})

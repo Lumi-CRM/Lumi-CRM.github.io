@@ -26,6 +26,27 @@ export const checkCloudConnection = async () => {
   }
 }
 
+export const checkCloudSession = async (expectedUserId: string) => {
+  if (!navigator.onLine) return { valid: false, message: 'Нет подключения к интернету' }
+  try {
+    const { data, error } = await supabase.auth.getUser()
+    if (error || !data.user || data.user.id !== expectedUserId) {
+      return { valid: false, message: 'Сессия не связана с текущей базой. Сначала сохраните резервную копию, затем войдите в аккаунт заново.' }
+    }
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', expectedUserId)
+      .maybeSingle()
+    if (profileError || !profile) {
+      return { valid: false, message: 'Профиль не найден в текущей базе. Сначала сохраните резервную копию, затем войдите в аккаунт заново.' }
+    }
+    return { valid: true, message: '' }
+  } catch {
+    return { valid: false, message: 'Не удалось проверить сессию в текущей базе.' }
+  }
+}
+
 configureOfflineSync(async () => {
   const { data } = await supabase.auth.getSession()
   return {
