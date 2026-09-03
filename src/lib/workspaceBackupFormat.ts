@@ -26,6 +26,12 @@ export const WORKSPACE_BACKUP_TABLES = [
 export type WorkspaceBackupTable = typeof WORKSPACE_BACKUP_TABLES[number]
 export type BackupRow = Record<string, unknown>
 
+export const SERVER_MANAGED_WORKSPACE_TABLES: WorkspaceBackupTable[] = [
+  'notifications',
+  'notification_jobs',
+  'push_subscriptions',
+]
+
 export type WorkspaceBackup = {
   format: 'lumicrm-workspace-backup'
   version: 1

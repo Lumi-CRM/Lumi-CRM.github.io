@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { parseWorkspaceBackup, summarizeWorkspaceBackup } from './workspaceBackupFormat.ts'
+import { parseWorkspaceBackup, SERVER_MANAGED_WORKSPACE_TABLES, summarizeWorkspaceBackup } from './workspaceBackupFormat.ts'
 
 const validBackup = {
   format: 'lumicrm-workspace-backup',
@@ -37,4 +37,11 @@ test('parseWorkspaceBackup rejects unrelated and malformed files', () => {
   assert.throws(() => parseWorkspaceBackup('{bad json'), /корректным JSON/)
   assert.throws(() => parseWorkspaceBackup({ ...validBackup, format: 'another-app' }), /не резервная копия LumiCRM/)
   assert.throws(() => parseWorkspaceBackup({ ...validBackup, tables: { clients: 'broken' } }), /clients повреждён/)
+})
+
+test('restore skips notifications that only server-side jobs may create', () => {
+  assert.equal(SERVER_MANAGED_WORKSPACE_TABLES.includes('notifications'), true)
+  assert.equal(SERVER_MANAGED_WORKSPACE_TABLES.includes('notification_jobs'), true)
+  assert.equal(SERVER_MANAGED_WORKSPACE_TABLES.includes('push_subscriptions'), true)
+  assert.equal(SERVER_MANAGED_WORKSPACE_TABLES.includes('events'), false)
 })

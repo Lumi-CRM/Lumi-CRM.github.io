@@ -1,6 +1,7 @@
 import { checkCloudConnection, supabase } from './supabase'
 import {
   WORKSPACE_BACKUP_TABLES,
+  SERVER_MANAGED_WORKSPACE_TABLES,
   parseWorkspaceBackup,
   type BackupRow,
   type WorkspaceBackup,
@@ -28,14 +29,13 @@ const RESTORE_TABLE_ORDER: WorkspaceBackupTable[] = [
   'monthly_plans',
   'property_shares',
   'crm_activities',
-  'notifications',
   'crm_imports',
   'crm_import_rows',
   'documents',
 ]
 
 // These tables are either rebuilt by database triggers or belong to a specific device.
-const SERVER_MANAGED_TABLES = new Set<WorkspaceBackupTable>(['notification_jobs', 'push_subscriptions'])
+const SERVER_MANAGED_TABLES = new Set<WorkspaceBackupTable>(SERVER_MANAGED_WORKSPACE_TABLES)
 const UPSERT_BATCH_SIZE = 200
 
 const loadUserTable = async (table: WorkspaceBackupTable, userId: string) => {
