@@ -1,6 +1,6 @@
 import type { Task, TaskStatus } from '../types'
 import { moveToTrash } from './trash'
-import { mapTaskRow, nextRecurringDate, taskFromInput, type TaskUpsertInput } from './taskMapping'
+import { mapTaskRow, nextRecurringDate, taskFromInput, withoutMissingTaskColumn, type TaskUpsertInput } from './taskMapping'
 import { supabase } from './supabase'
 
 export const fetchTasks = async (userId: string): Promise<Task[]> => {
@@ -13,6 +13,20 @@ export const fetchTasks = async (userId: string): Promise<Task[]> => {
     .order('due_time', { ascending: true, nullsFirst: false })
   if (error) throw error
   return (data || []).map(mapTaskRow)
+}
+
+const writeTask = async (userId: string, id: string, source: Record<string, unknown>, taskId?: string) => {
+  let payload = source
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const result = taskId
+      ? await supabase.from('tasks').update(payload).eq('id', taskId).eq('user_id', userId)
+      : await supabase.from('tasks').insert({ ...payload, id, user_id: userId })
+    if (!result.error) return
+    const compatiblePayload = withoutMissingTaskColumn(payload, result.error)
+    if (!compatiblePayload) throw result.error
+    payload = compatiblePayload
+  }
+  throw new Error('Схема задач не поддерживает сохранение')
 }
 
 export const saveTask = async (userId: string, input: TaskUpsertInput, taskId?: string, newTaskId?: string) => {
@@ -32,10 +46,7 @@ export const saveTask = async (userId: string, input: TaskUpsertInput, taskId?: 
     is_completed: input.status === 'done',
     completed_at: input.status === 'done' ? new Date().toISOString() : null,
   }
-  const result = taskId
-    ? await supabase.from('tasks').update(payload).eq('id', taskId).eq('user_id', userId)
-    : await supabase.from('tasks').insert({ ...payload, id, user_id: userId })
-  if (result.error) throw result.error
+  await writeTask(userId, id, payload, taskId)
   return { id, input }
 }
 
@@ -49,9 +60,7 @@ export const setTaskStatus = async (userId: string, task: Task, status: TaskStat
   if (error) throw error
   if (status === 'done' && task.recurrenceRule && task.recurrenceRule !== 'none') {
     const nextDueDate = nextRecurringDate(task.dueDate, task.recurrenceRule)
-    const { error: recurrenceError } = await supabase.from('tasks').insert({
-      id: crypto.randomUUID(),
-      user_id: userId,
+    await writeTask(userId, crypto.randomUUID(), {
       title: task.title,
       description: task.description || null,
       status: 'todo',
@@ -66,7 +75,6 @@ export const setTaskStatus = async (userId: string, task: Task, status: TaskStat
       is_completed: false,
       completed_at: null,
     })
-    if (recurrenceError) throw recurrenceError
   }
   return { task, status, completedAt }
 }

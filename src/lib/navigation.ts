@@ -46,14 +46,6 @@ export const desktopNavigationGroups: NavigationGroup[] = [
   },
 ]
 
-export const mobileNavigation: NavigationItem[] = [
-  { id: '/', label: 'Главная' },
-  { id: '/contacts', label: 'Контакты', aliases: ['/owners', '/landlords', '/buyers', '/tenants'] },
-  { id: '/properties', label: 'Объекты' },
-  { id: '/work', label: 'Дела', aliases: ['/calendar', '/calls', '/plan', '/tasks'] },
-  { id: '/deals', label: 'Сделки' },
-]
-
 export const isNavigationItemActive = (pathname: string, item: NavigationItem) => {
   const paths = [item.id, ...(item.aliases ?? [])]
   return paths.some(path => path === '/'

@@ -28,7 +28,7 @@ import { completeOverviewItem } from '../lib/crm'
 import { syncNativeReminders } from '../lib/nativeReminders'
 import { printCurrentPage } from '../lib/print'
 import { preloadCoreRoutes, preloadRoute } from '../lib/routeLoaders'
-import { desktopNavigationGroups, isNavigationItemActive, mobileNavigation } from '../lib/navigation'
+import { desktopNavigationGroups, isNavigationItemActive } from '../lib/navigation'
 import { useCrmOverview } from '../hooks/useCrmOverview'
 import logoLight from '../assets/logo-light.png'
 import ThemeSwitcher from '../components/ThemeSwitcher'
@@ -446,7 +446,7 @@ const Dashboard = ({ children }: DashboardProps) => {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4 pb-24 md:p-8">
+        <div className="min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-4 pb-8 md:p-8">
           {isHome ? renderHome() : <div key={syncRevision}>{children}</div>}
         </div>
       </main>
@@ -494,18 +494,6 @@ const Dashboard = ({ children }: DashboardProps) => {
         </div>
       )}
 
-      <nav className="lumi-mobile-nav lumi-header lumi-border fixed inset-x-0 bottom-0 z-[70] border-t p-2 pb-[calc(env(safe-area-inset-bottom)+0.5rem)] md:hidden" aria-label="Основная мобильная навигация">
-        {mobileNavigation.map(item => {
-          const Icon = navigationIcons[item.id]
-          const active = isNavigationItemActive(location.pathname, item)
-          return (
-            <button type="button" key={item.id} onPointerEnter={() => preloadRoute(item.id)} onFocus={() => preloadRoute(item.id)} onClick={() => navigate(item.id)} className={`flex min-w-0 flex-col items-center gap-1 rounded-xl px-1 py-2 text-[0.64rem] ${active ? 'lumi-nav-item-active' : 'lumi-nav-item'}`}>
-              <Icon style={{ width: 'var(--lumi-nav-icon-size)', height: 'var(--lumi-nav-icon-size)' }} />
-              <span className="w-full truncate text-center">{item.label}</span>
-            </button>
-          )
-        })}
-      </nav>
     </div>
   )
 }

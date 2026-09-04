@@ -19,6 +19,15 @@ export type TaskUpsertInput = {
 
 type CloudTaskRow = Record<string, unknown>
 
+export const withoutMissingTaskColumn = (payload: Record<string, unknown>, error: { code?: string; message?: string } | null) => {
+  if (error?.code !== 'PGRST204') return null
+  const column = error.message?.match(/Could not find the '([^']+)' column/)?.[1]
+  if (!column || !(column in payload)) return null
+  const next = { ...payload }
+  delete next[column]
+  return next
+}
+
 export const mapTaskRow = (row: CloudTaskRow): Task => ({
   id: String(row.id),
   userId: typeof row.user_id === 'string' ? row.user_id : undefined,

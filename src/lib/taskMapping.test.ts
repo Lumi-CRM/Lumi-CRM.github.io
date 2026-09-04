@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mapTaskRow, nextRecurringDate, taskFromInput } from './taskMapping.ts'
+import { mapTaskRow, nextRecurringDate, taskFromInput, withoutMissingTaskColumn } from './taskMapping.ts'
 
 test('maps task fields from the cloud model', () => {
   const task = mapTaskRow({
@@ -40,4 +40,13 @@ test('creates an optimistic completed task with the durable id', () => {
   assert.equal(task.id, 'task-local')
   assert.equal(task.isCompleted, true)
   assert.ok(task.completedAt)
+})
+
+test('removes unsupported task columns for an older Supabase schema', () => {
+  const payload = { title: 'Позвонить', parent_task_id: null, subtasks: [] }
+  assert.deepEqual(withoutMissingTaskColumn(payload, {
+    code: 'PGRST204',
+    message: "Could not find the 'parent_task_id' column of 'tasks' in the schema cache",
+  }), { title: 'Позвонить', subtasks: [] })
+  assert.equal(withoutMissingTaskColumn(payload, { code: '42501', message: 'RLS' }), null)
 })

@@ -72,12 +72,12 @@ const ContactsHubPage = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="w-full min-w-0 max-w-full space-y-6 overflow-x-hidden">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
+        <div className="min-w-0">
           <p className="lumi-accent-text text-sm font-semibold">Единая клиентская база</p>
           <h1 className="lumi-text mt-1 text-3xl font-bold">Контакты</h1>
-          <p className="lumi-muted mt-2">Все роли клиента, история и связанные действия в одном разделе.</p>
+          <p className="lumi-muted mt-2 break-words">Все роли клиента, история и связанные действия в одном разделе.</p>
         </div>
         <div className="relative">
           <button ref={addButtonRef} type="button" onClick={() => setAddMenuOpen(value => !value)} className="lumi-gradient-button inline-flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold sm:w-auto"><Plus className="h-5 w-5" />Добавить контакт</button>
@@ -88,7 +88,7 @@ const ContactsHubPage = () => {
         </div>
       </div>
 
-      <section className="lumi-panel rounded-2xl border p-4 sm:p-5">
+      <section className="lumi-panel w-full min-w-0 max-w-full rounded-2xl border p-4 sm:p-5">
         <div className="relative">
           <Search className="lumi-muted absolute left-3 top-3.5 h-5 w-5" />
           <input value={query} onChange={event => setQuery(event.target.value)} className="lumi-control w-full rounded-xl py-3 pl-10 pr-4 outline-none" placeholder="Имя, телефон, email или источник" />
@@ -108,7 +108,7 @@ const ContactsHubPage = () => {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {visibleContacts.map(contact => (
-            <button key={contact.id} type="button" onClick={() => openContact(contact)} className="lumi-panel lumi-content-auto rounded-2xl border p-5 text-left transition hover:-translate-y-0.5">
+            <button key={contact.id} type="button" onClick={() => openContact(contact)} className="lumi-panel lumi-content-auto min-w-0 max-w-full overflow-hidden rounded-2xl border p-5 text-left transition hover:-translate-y-0.5">
               <div className="flex items-start gap-3">
                 <div className="lumi-accent-bg flex h-12 w-12 shrink-0 items-center justify-center rounded-full font-bold">{contact.firstName[0] || '?'}{contact.lastName[0] || ''}</div>
                 <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><h2 className="lumi-text truncate font-semibold">{fullName(contact)}</h2>{contact.isFavorite && <Star className="h-4 w-4 shrink-0 fill-amber-400 text-amber-400" />}</div><div className="mt-2 flex flex-wrap gap-1.5">{contact.roles.map(role => <span key={role} className="lumi-accent-soft rounded-full px-2.5 py-1 text-xs font-medium">{roleLabel.get(role)}</span>)}</div></div>
