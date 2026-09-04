@@ -1,4 +1,6 @@
 import { checkCloudConnection, supabase } from './supabase'
+import { getCachedCrmFileBlob } from './offlineFiles'
+import type { CrmFileRecord } from './files'
 import {
   WORKSPACE_BACKUP_TABLES,
   SERVER_MANAGED_WORKSPACE_TABLES,
@@ -163,17 +165,19 @@ const restoreFileRecords = async (
     const storagePath = remapStoragePath(sourcePath, backup.sourceUserId, userId)
     const restoredRow = { ...withCurrentUser(row, userId), storage_path: storagePath }
     const signedUrl = backup.fileUrls[id]
-    if (!signedUrl) {
+    const sourceFile = { ...row, user_id: backup.sourceUserId } as CrmFileRecord
+    let blob = await getCachedCrmFileBlob(sourceFile)
+    if (!signedUrl && !blob) {
       if (backup.sourceUserId === userId) restoredRows.push(restoredRow)
       else {
         skippedFiles += 1
-        warnings.push(`${String(row.name ?? `Файл №${index + 1}`)}: в копии нет ссылки на содержимое.`)
+        warnings.push(`${String(row.name ?? `Файл №${index + 1}`)}: в копии и локальном кэше нет содержимого.`)
       }
       return
     }
 
     try {
-      const blob = await fetchBackupFile(signedUrl)
+      blob ??= await fetchBackupFile(signedUrl)
       const { error } = await supabase.storage.from(bucket).upload(storagePath, blob, {
         upsert: true,
         contentType: typeof row.mime_type === 'string' && row.mime_type ? row.mime_type : blob.type || 'application/octet-stream',

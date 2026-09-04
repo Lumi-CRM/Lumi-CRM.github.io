@@ -1,6 +1,6 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type { Property } from '../types'
-import { fetchPropertyCatalog, type PropertyCatalog } from '../lib/propertyCatalog'
+import { fetchDealProperties, fetchPropertyCatalog, type PropertyCatalog } from '../lib/propertyCatalog'
 import { propertyFromInput, type PropertyUpsertInput } from '../lib/propertyRecordMapping'
 import { normalizePropertyOwners, type PropertyOwnerAssignment } from '../lib/propertyOwners'
 import {
@@ -19,6 +19,13 @@ export const usePropertyDetails = (userId?: string, propertyId?: string, enabled
   queryKey: crmQueryKeys.propertyDetails(userId || 'anonymous', propertyId || 'new'),
   queryFn: () => fetchPropertyDetails(userId!, propertyId!),
   enabled: Boolean(userId && propertyId && enabled),
+  staleTime: 2 * 60_000,
+})
+
+export const useDealProperties = (userId?: string) => useQuery({
+  queryKey: crmQueryKeys.dealProperties(userId || 'anonymous'),
+  queryFn: () => fetchDealProperties(userId!),
+  enabled: Boolean(userId),
   staleTime: 2 * 60_000,
 })
 
@@ -46,6 +53,7 @@ export const usePropertyCatalog = (userId?: string) => {
     if (!userId) return
     await Promise.all([
       queryClient.invalidateQueries({ queryKey }),
+      queryClient.invalidateQueries({ queryKey: crmQueryKeys.dealProperties(userId) }),
       queryClient.invalidateQueries({ queryKey: crmQueryKeys.overview(userId) }),
       queryClient.invalidateQueries({ queryKey: crmQueryKeys.archive(userId) }),
       queryClient.invalidateQueries({ queryKey: crmQueryKeys.favorites(userId) }),

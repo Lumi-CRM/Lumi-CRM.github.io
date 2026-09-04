@@ -284,7 +284,7 @@ const SettingsPage = () => {
         )}
         {backupMessage && <p className={`mt-4 rounded-xl border px-4 py-3 text-sm ${restoreComplete ? 'border-emerald-700/40 bg-emerald-950/20 text-emerald-300' : 'lumi-border lumi-muted'}`}>{backupMessage}</p>}
         {restoreComplete && <button type="button" onClick={() => window.location.reload()} className="lumi-control mt-3 inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold"><RefreshCw className="h-4 w-4" />Обновить данные на экране</button>}
-        <p className="lumi-muted mt-4 text-xs leading-5">JSON-копия хранит записи и временные ссылки на файлы. Файлы переносятся, пока эти ссылки доступны; поэтому для полного переноса загружайте свежую копию в течение 24 часов.</p>
+        <p className="lumi-muted mt-4 text-xs leading-5">JSON-копия хранит записи и временные ссылки на файлы. Файлы переносятся, пока ссылки доступны. Если ссылка истекла, LumiCRM дополнительно проверит локальный кэш устройства, на котором файл был загружен.</p>
       </section>
 
       <section className="lumi-panel rounded-2xl border p-6">

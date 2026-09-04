@@ -4,9 +4,10 @@ import { motion } from 'framer-motion'
 import { useAuth } from '../context/AuthContext'
 import { useContacts } from '../hooks/useContacts'
 import { useDeals } from '../hooks/useDeals'
-import { usePropertyCatalog } from '../hooks/usePropertyCatalog'
+import { useDealProperties } from '../hooks/usePropertyCatalog'
 import { formatMoney } from '../lib/dealFinance'
 import { participantIdsWithLegacyFallback } from '../lib/dealParticipants'
+import { dealPropertyOptions } from '../lib/dealPropertySelection'
 import Modal from '../components/Modal'
 import type { Deal } from '../types'
 import type { ContactSummary } from '../lib/contacts'
@@ -50,10 +51,10 @@ const clientName = (client?: DealClient) => client
 const DealsPage = () => {
   const { user } = useAuth()
   const dealsQuery = useDeals(user?.id)
-  const propertyQuery = usePropertyCatalog(user?.id)
+  const propertyQuery = useDealProperties(user?.id)
   const contactsQuery = useContacts(user?.id)
   const deals = dealsQuery.data || []
-  const properties = propertyQuery.data?.properties || []
+  const properties = propertyQuery.data || []
   const clients = contactsQuery.data || []
   const loading = dealsQuery.isLoading || propertyQuery.isLoading || contactsQuery.isLoading
   const loadError = dealsQuery.error || propertyQuery.error || contactsQuery.error
@@ -69,6 +70,10 @@ const DealsPage = () => {
   const owners = useMemo(
     () => clients.filter(client => client.roles.includes('seller') || client.roles.includes('landlord')),
     [clients],
+  )
+  const selectableProperties = useMemo(
+    () => dealPropertyOptions(properties, editingDeal?.propertyId),
+    [editingDeal?.propertyId, properties],
   )
 
   const openModal = (deal?: Deal) => {
@@ -292,7 +297,7 @@ const DealsPage = () => {
 
       <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title={editingDeal ? 'Редактировать сделку' : 'Новая сделка'}>
         <form onSubmit={event => void handleSubmit(event)} className="space-y-5">
-          {(properties.length === 0 || buyers.length === 0 || owners.length === 0) && (
+          {(selectableProperties.length === 0 || buyers.length === 0 || owners.length === 0) && (
             <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-400">
               Для сделки нужны объект, покупатель и собственник. Создайте отсутствующие карточки в соответствующих разделах.
             </div>
@@ -301,7 +306,7 @@ const DealsPage = () => {
             <label className="lumi-muted-strong mb-2 block text-sm font-medium">Объект *</label>
             <select required value={formData.propertyId} onChange={event => handlePropertyChange(event.target.value)} className="lumi-control w-full rounded-xl px-4 py-3 outline-none">
               <option value="">Выберите объект</option>
-              {properties.map(property => <option key={property.id} value={property.id}>{property.address}</option>)}
+              {selectableProperties.map(property => <option key={property.id} value={property.id}>{property.address}{property.status === 'archived' ? ' · Архив' : ''}</option>)}
             </select>
           </div>
           <div>
@@ -314,19 +319,19 @@ const DealsPage = () => {
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div>
-              <label className="lumi-muted-strong mb-2 block text-sm font-medium">Итоговая стоимость объекта *</label>
+              <label className="lumi-muted-strong mb-2 flex min-h-10 items-end text-sm font-medium">Итоговая стоимость объекта *</label>
               <input type="number" required min="0" step="any" value={formData.price ?? ''} onChange={event => setFormData(current => ({ ...current, price: event.target.value ? Number(event.target.value) : undefined }))} className="lumi-control w-full rounded-xl px-4 py-3 outline-none" placeholder="0" />
             </div>
             <div>
-              <label className="lumi-muted-strong mb-2 block text-sm font-medium">Приход агентства</label>
+              <label className="lumi-muted-strong mb-2 flex min-h-10 items-end text-sm font-medium">Приход агентства</label>
               <input type="number" min="0" step="any" value={formData.agencyIncome ?? ''} onChange={event => setFormData(current => ({ ...current, agencyIncome: event.target.value ? Number(event.target.value) : undefined }))} className="lumi-control w-full rounded-xl px-4 py-3 outline-none" placeholder="0" />
             </div>
             <div>
-              <label className="lumi-muted-strong mb-2 block text-sm font-medium">Доход агента</label>
+              <label className="lumi-muted-strong mb-2 flex min-h-10 items-end text-sm font-medium">Доход агента</label>
               <input type="number" min="0" step="any" value={formData.agentIncome ?? ''} onChange={event => setFormData(current => ({ ...current, agentIncome: event.target.value ? Number(event.target.value) : undefined }))} className="lumi-control w-full rounded-xl px-4 py-3 outline-none" placeholder="0" />
             </div>
             <div>
-              <label className="lumi-muted-strong mb-2 block text-sm font-medium">Расходы</label>
+              <label className="lumi-muted-strong mb-2 flex min-h-10 items-end text-sm font-medium">Расходы</label>
               <input type="number" min="0" step="any" value={formData.expenses ?? ''} onChange={event => setFormData(current => ({ ...current, expenses: event.target.value ? Number(event.target.value) : undefined }))} className="lumi-control w-full rounded-xl px-4 py-3 outline-none" placeholder="0" />
             </div>
           </div>
@@ -356,7 +361,7 @@ const DealsPage = () => {
           {actionError && <p className="text-sm text-red-500">{actionError}</p>}
           <div className="flex flex-col-reverse gap-3 sm:flex-row">
             <button type="button" onClick={() => setIsModalOpen(false)} className="lumi-control flex-1 rounded-xl px-6 py-3 font-medium">Отмена</button>
-            <button type="submit" disabled={dealsQuery.mutationPending || !properties.length || !buyers.length || !owners.length} className="lumi-gradient-button flex-1 rounded-xl px-6 py-3 font-semibold disabled:opacity-50"><BriefcaseBusiness className="mr-2 inline h-4 w-4" />{dealsQuery.mutationPending ? 'Сохраняем…' : editingDeal ? 'Сохранить' : 'Создать сделку'}</button>
+            <button type="submit" disabled={dealsQuery.mutationPending || !selectableProperties.length || !buyers.length || !owners.length} className="lumi-gradient-button flex-1 rounded-xl px-6 py-3 font-semibold disabled:opacity-50"><BriefcaseBusiness className="mr-2 inline h-4 w-4" />{dealsQuery.mutationPending ? 'Сохраняем…' : editingDeal ? 'Сохранить' : 'Создать сделку'}</button>
           </div>
         </form>
       </Modal>

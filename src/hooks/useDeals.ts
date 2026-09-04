@@ -29,6 +29,7 @@ export const useDeals = (userId?: string) => {
       queryClient.invalidateQueries({ queryKey }),
       queryClient.invalidateQueries({ queryKey: crmQueryKeys.overview(userId) }),
       queryClient.invalidateQueries({ queryKey: crmQueryKeys.properties(userId) }),
+      queryClient.invalidateQueries({ queryKey: crmQueryKeys.dealProperties(userId) }),
       queryClient.invalidateQueries({ queryKey: crmQueryKeys.planActuals(userId) }),
     ])
   }

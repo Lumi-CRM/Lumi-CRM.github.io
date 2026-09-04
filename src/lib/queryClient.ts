@@ -8,6 +8,7 @@ export const crmQueryKeys = {
   clientRequirement: (userId: string, clientId: string, purpose: string) => ['crm', userId, 'client-requirement', clientId, purpose] as const,
   contactExtras: (userId: string, clientId: string) => ['crm', userId, 'contact-extras', clientId] as const,
   properties: (userId: string) => ['crm', userId, 'properties'] as const,
+  dealProperties: (userId: string) => ['crm', userId, 'deal-properties'] as const,
   propertyDetails: (userId: string, propertyId: string) => ['crm', userId, 'property-details', propertyId] as const,
   propertyHistory: (userId: string, propertyId: string) => ['crm', userId, 'property-history', propertyId] as const,
   propertyPromotions: (userId: string, propertyId: string) => ['crm', userId, 'property-promotions', propertyId] as const,

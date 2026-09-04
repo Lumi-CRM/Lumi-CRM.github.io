@@ -15,6 +15,17 @@ export type PropertyCatalog = {
   propertyOwners: Record<string, PropertyOwnerAssignment[]>
 }
 
+export const fetchDealProperties = async (userId: string): Promise<Property[]> => {
+  const { data, error } = await supabase
+    .from('properties')
+    .select('*')
+    .eq('user_id', userId)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return (data || []).map(mapPropertyRow)
+}
+
 export const fetchPropertyCatalog = async (userId: string): Promise<PropertyCatalog> => {
   const [propertiesResult, clientsResult, ownersResult] = await Promise.all([
     supabase

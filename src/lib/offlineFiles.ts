@@ -142,7 +142,7 @@ export const cacheCrmFileBlob = async (file: CrmFileRecord, blob: Blob) => {
   await runStore(BLOBS, 'readwrite', store => store.put(cached)).catch(() => undefined)
 }
 
-const getCachedBlob = async (file: CrmFileRecord) => {
+export const getCachedCrmFileBlob = async (file: CrmFileRecord) => {
   const pending = await runStore<PendingUpload | undefined>(UPLOADS, 'readonly', store => store.get(file.id)).catch(() => undefined)
   if (pending?.blob) return pending.blob
   const cached = await runStore<CachedBlob | undefined>(BLOBS, 'readonly', store => store.get(blobKey(file))).catch(() => undefined)
@@ -156,7 +156,7 @@ export const createLocalCrmFileUrl = async (file: CrmFileRecord) => {
   const key = blobKey(file)
   const existing = objectUrls.get(key)
   if (existing) return existing
-  const blob = await getCachedBlob(file)
+  const blob = await getCachedCrmFileBlob(file)
   if (!blob) return null
   const url = URL.createObjectURL(blob)
   objectUrls.set(key, url)
@@ -265,7 +265,7 @@ export const flushOfflineFiles = async (userId: string) => {
   return flushPromise
 }
 
-const hasCachedBlob = async (file: CrmFileRecord) => Boolean(await getCachedBlob(file))
+const hasCachedBlob = async (file: CrmFileRecord) => Boolean(await getCachedCrmFileBlob(file))
 
 export const prefetchCrmFiles = async (userId: string) => {
   if (!navigator.onLine) return
