@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { filterRowsForUrl, prepareOfflinePayload } from './offlineTransport.ts'
+import { filterRowsForUrl, prepareOfflinePayload, rewriteRequestUrl } from './offlineTransport.ts'
+
+test('Supabase requests keep their path and query when routed through the gateway', () => {
+  assert.equal(
+    rewriteRequestUrl(
+      'https://flwsglkkarikekkopdbu.supabase.co/rest/v1/tasks?user_id=eq.u1&select=*',
+      'https://lumicrm-gateway.denzotrail.workers.dev',
+    ),
+    'https://lumicrm-gateway.denzotrail.workers.dev/rest/v1/tasks?user_id=eq.u1&select=*',
+  )
+})
 
 test('offline cache applies PostgREST filters, sorting and limits', () => {
   const rows = [

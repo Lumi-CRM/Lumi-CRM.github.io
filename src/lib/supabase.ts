@@ -2,28 +2,35 @@ import { createClient } from '@supabase/supabase-js'
 import { configureOfflineSync, createOfflineFetch } from './offlineTransport'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseFallbackUrl = import.meta.env.VITE_SUPABASE_FALLBACK_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+const supabaseProjectRef = new URL(supabaseFallbackUrl || supabaseUrl).hostname.split('.')[0]
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  global: { fetch: createOfflineFetch(supabaseUrl) },
+  auth: { storageKey: `sb-${supabaseProjectRef}-auth-token` },
+  global: { fetch: createOfflineFetch(supabaseUrl, supabaseFallbackUrl) },
 })
 
 export const checkCloudConnection = async () => {
   if (!navigator.onLine) return false
-  const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), 4_000)
-  try {
-    const response = await fetch(`${supabaseUrl}/auth/v1/health`, {
-      cache: 'no-store',
-      headers: { apikey: supabaseAnonKey },
-      signal: controller.signal,
-    })
-    return response.ok
-  } catch {
-    return false
-  } finally {
-    window.clearTimeout(timeout)
+  const endpoints = [...new Set([supabaseUrl, supabaseFallbackUrl].filter(Boolean))]
+  for (const endpoint of endpoints) {
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 2_000)
+    try {
+      const response = await fetch(`${endpoint}/auth/v1/health`, {
+        cache: 'no-store',
+        headers: { apikey: supabaseAnonKey },
+        signal: controller.signal,
+      })
+      if (response.ok) return true
+    } catch {
+      // Try the direct Supabase endpoint when the gateway is unavailable.
+    } finally {
+      window.clearTimeout(timeout)
+    }
   }
+  return false
 }
 
 export const checkCloudSession = async (expectedUserId: string) => {

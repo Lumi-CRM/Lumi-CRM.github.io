@@ -73,8 +73,8 @@ const UUID_TABLES = new Set([
 const SOFT_DELETE_TABLES = new Set(['clients', 'properties', 'tasks', 'events', 'deals', 'crm_activities'])
 const SAFE_HEADERS = new Set(['accept', 'content-type', 'content-profile', 'prefer', 'range', 'range-unit'])
 const nativeFetch = globalThis.fetch.bind(globalThis)
-const READ_TIMEOUT_MS = 5_000
-const WRITE_TIMEOUT_MS = 7_000
+const READ_TIMEOUT_MS = 2_000
+const WRITE_TIMEOUT_MS = 2_000
 
 let sessionProvider: (() => Promise<SessionSnapshot>) | null = null
 let syncPromise: Promise<number> | null = null
@@ -91,6 +91,36 @@ const fetchWithTimeout = async (request: Request, timeoutMs: number) => {
   } finally {
     globalThis.clearTimeout(timeout)
   }
+}
+
+export const rewriteRequestUrl = (urlValue: string, endpoint: string) => {
+  const source = new URL(urlValue)
+  const target = new URL(endpoint)
+  target.pathname = source.pathname
+  target.search = source.search
+  target.hash = source.hash
+  return target.toString()
+}
+
+const fetchWithFallback = async (request: Request, timeoutMs: number, fallbackUrl?: string) => {
+  let primaryResponse: Response | null = null
+  let primaryError: unknown
+  try {
+    primaryResponse = await fetchWithTimeout(request.clone(), timeoutMs)
+    if (primaryResponse.status < 500 || !fallbackUrl) return primaryResponse
+  } catch (error) {
+    primaryError = error
+    if (!fallbackUrl) throw error
+  }
+
+  const primaryOrigin = new URL(request.url).origin
+  const fallbackOrigin = new URL(fallbackUrl).origin
+  if (primaryOrigin === fallbackOrigin) {
+    if (primaryResponse) return primaryResponse
+    throw primaryError
+  }
+
+  return fetchWithTimeout(new Request(rewriteRequestUrl(request.url, fallbackUrl), request.clone()), timeoutMs)
 }
 
 const emitStatus = (detail: OfflineStatus) => {
@@ -454,13 +484,14 @@ const enqueueMutation = async (request: Request, userId: string, table: string) 
   return syntheticMutationResponse(request, method, parsed)
 }
 
-export const createOfflineFetch = (supabaseUrl: string) => async (input: RequestInfo | URL, init?: RequestInit) => {
+export const createOfflineFetch = (supabaseUrl: string, fallbackUrl?: string) => async (input: RequestInfo | URL, init?: RequestInit) => {
   const request = new Request(input, init)
   const url = new URL(request.url)
-  const isSupabaseRequest = url.origin === new URL(supabaseUrl).origin
+  const supabaseOrigins = new Set([supabaseUrl, fallbackUrl].filter(Boolean).map(value => new URL(value as string).origin))
+  const isSupabaseRequest = supabaseOrigins.has(url.origin)
   const table = isSupabaseRequest ? getTable(url) : null
   if (!table) {
-    if (isSupabaseRequest) return fetchWithTimeout(request, request.method === 'GET' ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS)
+    if (isSupabaseRequest) return fetchWithFallback(request, request.method === 'GET' ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS, fallbackUrl)
     return nativeFetch(request)
   }
 
@@ -471,15 +502,33 @@ export const createOfflineFetch = (supabaseUrl: string) => async (input: Request
   if (method === 'GET' || method === 'HEAD') {
     if (isOnline()) {
       const cached = await findCachedResponse(request, userId, table)
-      const networkRequest = fetchWithTimeout(request.clone(), READ_TIMEOUT_MS)
-      void networkRequest.then(response => {
-        if (response.ok) {
-          emitStatus({ online: true, pending: 0, syncing: false })
-          return cacheResponse(request, response, userId, table)
-        }
-      }).catch(() => undefined)
+      const networkRequest = fetchWithFallback(request.clone(), READ_TIMEOUT_MS, fallbackUrl)
+      if (cached) {
+        const cachedBody = await cached.clone().text()
+        void networkRequest.then(async response => {
+          if (!response.ok) return
+          const networkBody = await response.clone().text()
+          await cacheResponse(request, response, userId, table)
+          emitStatus({ online: true, pending: await getOfflineQueueCount(userId), syncing: false })
+          if (networkBody !== cachedBody && typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('lumicrm:remote-data-changed'))
+          }
+        }).catch(async () => {
+          emitStatus({
+            online: false,
+            pending: await getOfflineQueueCount(userId),
+            syncing: false,
+            error: 'Облако недоступно — используется копия на устройстве',
+          })
+        })
+        return cached
+      }
       try {
         const response = await networkRequest
+        if (response.ok) {
+          await cacheResponse(request, response, userId, table)
+          emitStatus({ online: true, pending: await getOfflineQueueCount(userId), syncing: false })
+        }
         if (response.status < 500) return response
       } catch {
         // Fall through to the device-local snapshot.
@@ -496,7 +545,7 @@ export const createOfflineFetch = (supabaseUrl: string) => async (input: Request
 
   if (isOnline()) {
     try {
-      const response = await fetchWithTimeout(request.clone(), WRITE_TIMEOUT_MS)
+      const response = await fetchWithFallback(request.clone(), WRITE_TIMEOUT_MS, fallbackUrl)
       if (response.status < 500) {
         emitStatus({ online: true, pending: await getOfflineQueueCount(userId), syncing: false })
         return response
@@ -561,11 +610,11 @@ export const flushOfflineQueue = async () => {
           const prefer = headers.get('prefer') ?? ''
           if (!prefer.includes('resolution=')) headers.set('prefer', [prefer, 'resolution=merge-duplicates'].filter(Boolean).join(','))
         }
-        const response = await fetchWithTimeout(new Request(replayUrl(entry), {
+        const response = await fetchWithFallback(new Request(rewriteRequestUrl(replayUrl(entry), import.meta.env.VITE_SUPABASE_URL), {
           method: entry.method,
           headers,
           body: entry.body || undefined,
-        }), WRITE_TIMEOUT_MS)
+        }), WRITE_TIMEOUT_MS, import.meta.env.VITE_SUPABASE_FALLBACK_URL)
         if (response.ok) {
           await runStore(QUEUE_STORE, 'readwrite', store => store.delete(entry.id))
           synced += 1
