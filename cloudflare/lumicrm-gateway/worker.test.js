@@ -4,6 +4,7 @@ import { handleGatewayRequest } from './worker.js'
 
 const gateway = 'https://lumicrm-gateway.denzotrail.workers.dev'
 const origin = 'https://lumi-crm.github.io'
+const pagesOrigin = 'https://lumicrm.pages.dev'
 
 test('gateway rejects host-switch, encoded separator and admin routes without forwarding credentials', async () => {
   for (const path of ['//attacker.example/rest/v1/tasks', '/storage%2fv1/object/x', '/auth/v1/admin/users', '/unknown', '/rest/v1/../../../admin']) {
@@ -35,7 +36,7 @@ test('gateway forwards bearer credentials only to the fixed upstream, without co
 })
 
 test('gateway permits native origins and rejects foreign browser origins before upstream work', async () => {
-  for (const value of [origin, 'https://localhost', 'null']) {
+  for (const value of [origin, pagesOrigin, 'https://localhost', 'null']) {
     const response = await handleGatewayRequest(new Request(`${gateway}/rest/v1/tasks`, { method: 'OPTIONS', headers: { origin: value } }))
     assert.equal(response.status, 204)
     assert.equal(response.headers.get('access-control-allow-origin'), value)

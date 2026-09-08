@@ -1,6 +1,7 @@
 const UPSTREAM = 'https://flwsglkkarikekkopdbu.supabase.co'
 const ALLOWED_ORIGINS = new Set([
   'https://lumi-crm.github.io',
+  'https://lumicrm.pages.dev',
   'https://localhost', // Packaged Capacitor Android app.
   'capacitor://localhost',
   'null', // Packaged Electron file:// renderer; CORS is not authentication.
