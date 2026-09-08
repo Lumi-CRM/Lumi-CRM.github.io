@@ -30,8 +30,13 @@ grant execute on function public.request_lumicrm_reminder_dispatch() to service_
 do $$
 begin
   if to_regclass('cron.job') is not null then
-    update cron.job set command = 'select public.request_lumicrm_reminder_dispatch();'
-    where jobname = 'lumicrm-dispatch-reminders';
+    -- Supabase blocks direct writes to cron.job. Scheduling a job with the
+    -- existing name replaces it through pg_cron's supported permission path.
+    perform cron.schedule(
+      'lumicrm-dispatch-reminders',
+      '* * * * *',
+      'select public.request_lumicrm_reminder_dispatch();'
+    );
   end if;
 end;
 $$;
