@@ -2,15 +2,16 @@ import type { Task, TaskStatus } from '../types'
 import { moveToTrash } from './trash'
 import { mapTaskRow, nextRecurringDate, taskFromInput, withoutMissingTaskColumn, type TaskUpsertInput } from './taskMapping'
 import { supabase } from './supabase'
+import { fetchAllRows } from './pagination'
 
 export const fetchTasks = async (userId: string): Promise<Task[]> => {
-  const { data, error } = await supabase
+  const { data, error } = await fetchAllRows(() => supabase
     .from('tasks')
     .select('*')
     .eq('user_id', userId)
     .is('deleted_at', null)
     .order('due_date', { ascending: true, nullsFirst: false })
-    .order('due_time', { ascending: true, nullsFirst: false })
+    .order('due_time', { ascending: true, nullsFirst: false }))
   if (error) throw error
   return (data || []).map(mapTaskRow)
 }

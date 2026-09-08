@@ -43,7 +43,17 @@ const DELETIONS = 'deletions'
 const BLOBS = 'blobs'
 const objectUrls = new Map<string, string>()
 let flushPromise: Promise<number> | null = null
+let activeUserId: string | null = null
 const FILE_SYNC_TIMEOUT_MS = 10_000
+
+export const setOfflineFileSession = (userId: string | null) => {
+  if (activeUserId === userId) return
+  activeUserId = userId
+  for (const url of objectUrls.values()) URL.revokeObjectURL(url)
+  objectUrls.clear()
+}
+
+const ownsActiveSession = (userId: string) => Boolean(activeUserId && activeUserId === userId)
 
 const withSyncTimeout = <T,>(request: PromiseLike<T>) => new Promise<T>((resolve, reject) => {
   const timer = window.setTimeout(() => reject(new Error('FILE_SYNC_TIMEOUT')), FILE_SYNC_TIMEOUT_MS)
@@ -81,10 +91,10 @@ const runStore = async <T>(storeName: string, mode: IDBTransactionMode, operatio
   return new Promise<T>((resolve, reject) => {
     const transaction = database.transaction(storeName, mode)
     const request = operation(transaction.objectStore(storeName))
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error ?? new Error('Ошибка локального хранилища файлов'))
-    transaction.oncomplete = () => database.close()
-    transaction.onerror = () => reject(transaction.error ?? new Error('Ошибка транзакции файлов'))
+    request.onerror = () => { database.close(); reject(request.error ?? new Error('Ошибка локального хранилища файлов')) }
+    transaction.oncomplete = () => { database.close(); resolve(request.result) }
+    transaction.onabort = () => { database.close(); reject(transaction.error ?? new Error('Транзакция файлов отменена')) }
+    transaction.onerror = () => { database.close(); reject(transaction.error ?? new Error('Ошибка транзакции файлов')) }
   })
 }
 
@@ -94,9 +104,9 @@ const getAllForUser = async <T>(storeName: string, userId: string) => {
     const transaction = database.transaction(storeName, 'readonly')
     const request = transaction.objectStore(storeName).index('userId').getAll(userId)
     request.onsuccess = () => resolve(request.result as T[])
-    request.onerror = () => reject(request.error ?? new Error('Ошибка чтения локальных файлов'))
+    request.onerror = () => { database.close(); reject(request.error ?? new Error('Ошибка чтения локальных файлов')) }
     transaction.oncomplete = () => database.close()
-    transaction.onerror = () => reject(transaction.error ?? new Error('Ошибка транзакции файлов'))
+    transaction.onerror = () => { database.close(); reject(transaction.error ?? new Error('Ошибка транзакции файлов')) }
   })
 }
 
@@ -107,6 +117,7 @@ const emitChange = () => {
 }
 
 export const queueOfflineFile = async (record: CrmFileRecord, blob: Blob) => {
+  if (!ownsActiveSession(record.user_id)) throw new Error('Сессия пользователя изменилась')
   const pending: PendingUpload = {
     id: record.id,
     userId: record.user_id,
@@ -123,6 +134,7 @@ export const queueOfflineFile = async (record: CrmFileRecord, blob: Blob) => {
 }
 
 export const listPendingCrmFiles = async ({ userId, bucket, clientId, propertyId }: FileFilters) => {
+  if (!ownsActiveSession(userId)) return []
   const uploads = await getAllForUser<PendingUpload>(UPLOADS, userId).catch(() => [])
   return uploads
     .map(item => item.record)
@@ -132,6 +144,7 @@ export const listPendingCrmFiles = async ({ userId, bucket, clientId, propertyId
 }
 
 export const cacheCrmFileBlob = async (file: CrmFileRecord, blob: Blob) => {
+  if (!ownsActiveSession(file.user_id)) return
   const cached: CachedBlob = {
     key: blobKey(file),
     userId: file.user_id,
@@ -143,6 +156,7 @@ export const cacheCrmFileBlob = async (file: CrmFileRecord, blob: Blob) => {
 }
 
 export const getCachedCrmFileBlob = async (file: CrmFileRecord) => {
+  if (!ownsActiveSession(file.user_id)) return null
   const pending = await runStore<PendingUpload | undefined>(UPLOADS, 'readonly', store => store.get(file.id)).catch(() => undefined)
   if (pending?.blob) return pending.blob
   const cached = await runStore<CachedBlob | undefined>(BLOBS, 'readonly', store => store.get(blobKey(file))).catch(() => undefined)
@@ -150,9 +164,10 @@ export const getCachedCrmFileBlob = async (file: CrmFileRecord) => {
 }
 
 export const isPendingCrmFile = async (file: CrmFileRecord) =>
-  Boolean(await runStore<PendingUpload | undefined>(UPLOADS, 'readonly', store => store.get(file.id)).catch(() => undefined))
+  ownsActiveSession(file.user_id) && Boolean(await runStore<PendingUpload | undefined>(UPLOADS, 'readonly', store => store.get(file.id)).catch(() => undefined))
 
 export const createLocalCrmFileUrl = async (file: CrmFileRecord) => {
+  if (!ownsActiveSession(file.user_id)) return null
   const key = blobKey(file)
   const existing = objectUrls.get(key)
   if (existing) return existing
@@ -172,6 +187,7 @@ const removeCachedBlob = async (file: CrmFileRecord) => {
 }
 
 export const deletePendingCrmFile = async (file: CrmFileRecord) => {
+  if (!ownsActiveSession(file.user_id)) return false
   const pending = await runStore<PendingUpload | undefined>(UPLOADS, 'readonly', store => store.get(file.id)).catch(() => undefined)
   if (!pending) return false
   await runStore(UPLOADS, 'readwrite', store => store.delete(file.id))
@@ -181,6 +197,7 @@ export const deletePendingCrmFile = async (file: CrmFileRecord) => {
 }
 
 export const queueOfflineFileDeletion = async (file: CrmFileRecord) => {
+  if (!ownsActiveSession(file.user_id)) throw new Error('Сессия пользователя изменилась')
   const deletion: PendingDeletion = {
     id: file.id,
     userId: file.user_id,
@@ -204,6 +221,7 @@ export const setPendingPrimaryFile = async (file: CrmFileRecord) => {
 }
 
 export const getOfflineFileQueueCount = async (userId: string) => {
+  if (!ownsActiveSession(userId)) return 0
   const [uploads, deletions] = await Promise.all([
     getAllForUser<PendingUpload>(UPLOADS, userId).catch(() => []),
     getAllForUser<PendingDeletion>(DELETIONS, userId).catch(() => []),
@@ -216,12 +234,13 @@ const isAlreadyUploaded = (message: string) => /already exists|duplicate/i.test(
 export const flushOfflineFiles = async (userId: string) => {
   if (flushPromise) return flushPromise
   flushPromise = (async () => {
-    if (!navigator.onLine) return 0
+    if (!navigator.onLine || !ownsActiveSession(userId)) return 0
     const uploads = (await getAllForUser<PendingUpload>(UPLOADS, userId).catch(() => [])).sort((a, b) => a.createdAt - b.createdAt)
     const deletions = (await getAllForUser<PendingDeletion>(DELETIONS, userId).catch(() => [])).sort((a, b) => a.createdAt - b.createdAt)
     let synced = 0
 
     for (const item of uploads) {
+      if (!ownsActiveSession(userId)) break
       try {
         const { error: uploadError } = await withSyncTimeout(supabase.storage.from(item.record.bucket).upload(item.record.storage_path, item.blob, {
           cacheControl: '86400',
@@ -243,6 +262,7 @@ export const flushOfflineFiles = async (userId: string) => {
     }
 
     for (const item of deletions) {
+      if (!ownsActiveSession(userId)) break
       try {
         const { error } = await withSyncTimeout(supabase.storage.from(item.file.bucket).remove([item.file.storage_path]))
         if (error && !/not found/i.test(error.message)) throw error
@@ -268,10 +288,11 @@ export const flushOfflineFiles = async (userId: string) => {
 const hasCachedBlob = async (file: CrmFileRecord) => Boolean(await getCachedCrmFileBlob(file))
 
 export const prefetchCrmFiles = async (userId: string) => {
-  if (!navigator.onLine) return
+  if (!navigator.onLine || !ownsActiveSession(userId)) return
   try {
     await navigator.storage?.persist?.()
-    const { data, error } = await supabase.from('crm_files').select('*').eq('user_id', userId).order('created_at', { ascending: false })
+    // Passport scans and contracts must not be copied to disk in the background.
+    const { data, error } = await supabase.from('crm_files').select('*').eq('user_id', userId).eq('bucket', 'crm-images').order('created_at', { ascending: false })
     if (error) return
     const files = (data ?? []) as CrmFileRecord[]
     const missing: CrmFileRecord[] = []
@@ -280,6 +301,7 @@ export const prefetchCrmFiles = async (userId: string) => {
     }
 
     for (let offset = 0; offset < missing.length; offset += 10) {
+      if (!ownsActiveSession(userId)) return
       const batch = missing.slice(offset, offset + 10)
       const byBucket = batch.reduce<Map<CrmFileRecord['bucket'], CrmFileRecord[]>>((groups, file) => {
         const group = groups.get(file.bucket) ?? []

@@ -66,7 +66,7 @@ const PropertyMediaPanel = ({ propertyId, propertyAddress }: PropertyMediaPanelP
             {uploading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
             {uploading ? 'Загружаем…' : 'Добавить фотографии'}
           </button>
-          <input ref={inputRef} type="file" multiple accept="image/*" className="hidden" onChange={upload} />
+          <input ref={inputRef} type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={upload} />
         </div>
         <p className="lumi-muted mt-3 text-sm">Папка объекта: {propertyAddress}. Файлы сохраняются отдельно по выбранным группам.</p>
         {(error || loadError) && <p className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">{error || loadError}</p>}

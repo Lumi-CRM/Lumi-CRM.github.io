@@ -1,6 +1,7 @@
 import { checkCloudConnection, supabase } from './supabase'
 import { getCachedCrmFileBlob } from './offlineFiles'
 import type { CrmFileRecord } from './files'
+import { fetchAllRows, mapWithConcurrency } from './pagination'
 import {
   WORKSPACE_BACKUP_TABLES,
   SERVER_MANAGED_WORKSPACE_TABLES,
@@ -41,8 +42,14 @@ const SERVER_MANAGED_TABLES = new Set<WorkspaceBackupTable>(SERVER_MANAGED_WORKS
 const UPSERT_BATCH_SIZE = 200
 
 const loadUserTable = async (table: WorkspaceBackupTable, userId: string) => {
-  const { data, error } = await supabase.from(table).select('*').eq('user_id', userId).limit(10_000)
-  return { rows: (data ?? []) as BackupRow[], error: error?.message }
+  try {
+    const { data } = await fetchAllRows(() => supabase.from(table).select('*')
+      .eq('user_id', userId).setHeader('x-lumicrm-network-only', 'true'), table === 'property_details' ? 'property_id' : 'id')
+    return { rows: data as BackupRow[] }
+  } catch (error) {
+    const message = error && typeof error === 'object' && 'message' in error ? String(error.message) : String(error)
+    throw new Error(`Резервная копия не создана: ${table}: ${message}`)
+  }
 }
 
 const buildFileUrls = async (rows: BackupRow[], warnings: string[]) => {
@@ -54,18 +61,22 @@ const buildFileUrls = async (rows: BackupRow[], warnings: string[]) => {
     const bucket = typeof row.bucket === 'string' ? row.bucket : ''
     const path = typeof row.storage_path === 'string' ? row.storage_path : ''
     if (!id || !bucket || !path) continue
-    byBucket.set(bucket, [...(byBucket.get(bucket) ?? []), { id, path }])
+    const files = byBucket.get(bucket) ?? []
+    files.push({ id, path })
+    byBucket.set(bucket, files)
   }
 
   for (const [bucket, files] of byBucket) {
-    const { data, error } = await supabase.storage.from(bucket).createSignedUrls(files.map(file => file.path), 24 * 60 * 60)
-    if (error) {
-      warnings.push(`Не удалось подготовить ссылки на файлы из ${bucket}: ${error.message}`)
-      continue
+    for (const batch of chunks(files, 100)) {
+      const { data, error } = await supabase.storage.from(bucket).createSignedUrls(batch.map(file => file.path), 24 * 60 * 60)
+      if (error) {
+        warnings.push(`Не удалось подготовить ссылки на файлы из ${bucket}: ${error.message}`)
+        continue
+      }
+      data?.forEach((item, index) => {
+        if (item.signedUrl && batch[index]) result[batch[index].id] = item.signedUrl
+      })
     }
-    data?.forEach((item, index) => {
-      if (item.signedUrl) result[files[index].id] = item.signedUrl
-    })
   }
 
   return result
@@ -73,18 +84,17 @@ const buildFileUrls = async (rows: BackupRow[], warnings: string[]) => {
 
 export const createWorkspaceBackup = async (userId: string): Promise<WorkspaceBackup> => {
   const warnings: string[] = []
-  const { data: profile, error: profileError } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
-  if (profileError) warnings.push(`Профиль: ${profileError.message}`)
+  const { data: profile, error: profileError } = await supabase.from('profiles').select('*').eq('id', userId).setHeader('x-lumicrm-network-only', 'true').maybeSingle()
+  if (profileError) throw new Error(`Резервная копия не создана: профиль: ${profileError.message}`)
 
-  const tableResults = await Promise.all(WORKSPACE_BACKUP_TABLES.map(async table => ({ table, ...(await loadUserTable(table, userId)) })))
+  const tableResults = await mapWithConcurrency(WORKSPACE_BACKUP_TABLES, 3, async table => ({ table, ...(await loadUserTable(table, userId)) }))
   const tables: Record<string, BackupRow[]> = {}
   for (const result of tableResults) {
     tables[result.table] = result.rows
-    if (result.error) warnings.push(`${result.table}: ${result.error}`)
   }
 
   const fileUrls = await buildFileUrls(tables.crm_files ?? [], warnings)
-  return {
+  return parseWorkspaceBackup({
     format: 'lumicrm-workspace-backup',
     version: 1,
     exportedAt: new Date().toISOString(),
@@ -93,7 +103,7 @@ export const createWorkspaceBackup = async (userId: string): Promise<WorkspaceBa
     tables,
     fileUrls,
     warnings,
-  }
+  })
 }
 
 export const downloadWorkspaceBackup = async (userId: string) => {

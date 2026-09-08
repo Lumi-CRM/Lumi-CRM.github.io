@@ -4,6 +4,7 @@ import { mapArchiveRecords, mapTrashItems, type ArchivedProperty, type ArchiveRe
 import { recordPropertyHistory } from './propertyHistory'
 import { buildPropertyHistoryChange } from './propertyHistoryMapping'
 import { supabase } from './supabase'
+import { fetchAllRows } from './pagination'
 import { deleteForever, emptyTrash, moveToTrash, restoreFromTrash, type TrashTable } from './trash'
 
 export type FavoriteRecords = { properties: Property[]; clients: Client[] }
@@ -11,8 +12,8 @@ export type ArchiveRecordKind = 'property' | 'client'
 
 export const fetchArchiveRecords = async (userId: string): Promise<ArchiveRecords> => {
   const [propertyResult, clientResult] = await Promise.all([
-    supabase.from('properties').select('id,address,price,rooms,area,status').eq('user_id', userId).is('deleted_at', null).in('status', ['sold', 'archived']).order('updated_at', { ascending: false }),
-    supabase.from('clients').select('id,first_name,last_name,middle_name,phone,type,status').eq('user_id', userId).is('deleted_at', null).eq('status', 'archived').order('updated_at', { ascending: false }),
+    fetchAllRows(() => supabase.from('properties').select('id,address,price,rooms,area,status').eq('user_id', userId).is('deleted_at', null).in('status', ['sold', 'archived']).order('updated_at', { ascending: false })),
+    fetchAllRows(() => supabase.from('clients').select('id,first_name,last_name,middle_name,phone,type,status').eq('user_id', userId).is('deleted_at', null).eq('status', 'archived').order('updated_at', { ascending: false })),
   ])
   const firstError = [propertyResult.error, clientResult.error].find(Boolean)
   if (firstError) throw firstError
@@ -41,8 +42,8 @@ export const trashArchivedRecord = async (userId: string, kind: ArchiveRecordKin
 
 export const fetchFavoriteRecords = async (userId: string): Promise<FavoriteRecords> => {
   const [propertyResult, clientResult] = await Promise.all([
-    supabase.from('properties').select('*').eq('user_id', userId).is('deleted_at', null).eq('is_favorite', true).order('updated_at', { ascending: false }),
-    supabase.from('clients').select('*').eq('user_id', userId).is('deleted_at', null).eq('is_favorite', true).order('updated_at', { ascending: false }),
+    fetchAllRows(() => supabase.from('properties').select('*').eq('user_id', userId).is('deleted_at', null).eq('is_favorite', true).order('updated_at', { ascending: false })),
+    fetchAllRows(() => supabase.from('clients').select('*').eq('user_id', userId).is('deleted_at', null).eq('is_favorite', true).order('updated_at', { ascending: false })),
   ])
   const firstError = [propertyResult.error, clientResult.error].find(Boolean)
   if (firstError) throw firstError
@@ -64,12 +65,12 @@ export const fetchTrashItems = async (userId: string): Promise<TrashItem[]> => {
     try { await supabase.rpc('purge_lumicrm_trash') } catch { /* The scheduled purge remains a fallback. */ }
   }
   const [properties, clients, tasks, events, deals, activities] = await Promise.all([
-    supabase.from('properties').select('id,address,status,deleted_at').eq('user_id', userId).not('deleted_at', 'is', null),
-    supabase.from('clients').select('id,first_name,last_name,middle_name,phone,deleted_at').eq('user_id', userId).not('deleted_at', 'is', null),
-    supabase.from('tasks').select('id,title,due_date,deleted_at').eq('user_id', userId).not('deleted_at', 'is', null),
-    supabase.from('events').select('id,title,type,event_date,deleted_at').eq('user_id', userId).not('deleted_at', 'is', null),
-    supabase.from('deals').select('id,price,status,deleted_at').eq('user_id', userId).not('deleted_at', 'is', null),
-    supabase.from('crm_activities').select('id,title,type,occurred_at,deleted_at').eq('user_id', userId).not('deleted_at', 'is', null),
+    fetchAllRows(() => supabase.from('properties').select('id,address,status,deleted_at').eq('user_id', userId).not('deleted_at', 'is', null)),
+    fetchAllRows(() => supabase.from('clients').select('id,first_name,last_name,middle_name,phone,deleted_at').eq('user_id', userId).not('deleted_at', 'is', null)),
+    fetchAllRows(() => supabase.from('tasks').select('id,title,due_date,deleted_at').eq('user_id', userId).not('deleted_at', 'is', null)),
+    fetchAllRows(() => supabase.from('events').select('id,title,type,event_date,deleted_at').eq('user_id', userId).not('deleted_at', 'is', null)),
+    fetchAllRows(() => supabase.from('deals').select('id,price,status,deleted_at').eq('user_id', userId).not('deleted_at', 'is', null)),
+    fetchAllRows(() => supabase.from('crm_activities').select('id,title,type,occurred_at,deleted_at').eq('user_id', userId).not('deleted_at', 'is', null)),
   ])
   const firstError = [properties.error, clients.error, tasks.error, events.error, deals.error, activities.error].find(Boolean)
   if (firstError) throw firstError

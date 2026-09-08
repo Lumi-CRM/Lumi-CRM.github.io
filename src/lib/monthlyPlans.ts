@@ -1,5 +1,6 @@
 import { mapMonthlyPlanRow, monthlyPlanFromInput, type MonthlyPlan, type MonthlyPlanUpsertInput } from './monthlyPlanMapping'
 import { supabase } from './supabase'
+import { fetchAllRows } from './pagination'
 
 export interface PlanActivityRow {
   type: string
@@ -36,9 +37,9 @@ export const fetchLatestMonthlyPlan = async (userId: string): Promise<MonthlyPla
 
 export const fetchPlanActualSources = async (userId: string): Promise<PlanActualSources> => {
   const [activityResult, dealResult, detailsResult] = await Promise.all([
-    supabase.from('crm_activities').select('type,occurred_at,external_key,metadata').eq('user_id', userId).is('deleted_at', null).eq('status', 'completed'),
-    supabase.from('deals').select('id,property_id,price,status,created_at').eq('user_id', userId).is('deleted_at', null),
-    supabase.from('property_details').select('property_id,new_building').eq('user_id', userId).eq('new_building', true),
+    fetchAllRows(() => supabase.from('crm_activities').select('id,type,occurred_at,external_key,metadata').eq('user_id', userId).is('deleted_at', null).eq('status', 'completed')),
+    fetchAllRows(() => supabase.from('deals').select('id,property_id,price,status,created_at').eq('user_id', userId).is('deleted_at', null)),
+    fetchAllRows(() => supabase.from('property_details').select('property_id,new_building').eq('user_id', userId).eq('new_building', true), 'property_id'),
   ])
   const firstError = [activityResult.error, dealResult.error, detailsResult.error].find(Boolean)
   if (firstError) throw firstError

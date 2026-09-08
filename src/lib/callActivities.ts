@@ -1,19 +1,17 @@
 import { callFromInput, mapCallActivityRow, type CallActivityInput, type WorkCall } from './callActivityMapping'
+import { fetchAllRows } from './pagination'
 import { supabase } from './supabase'
 import { moveToTrash } from './trash'
 
 export const fetchCallActivities = async (userId: string): Promise<WorkCall[]> => {
-  const { data, error } = await supabase
+  const { data } = await fetchAllRows(() => supabase
     .from('crm_activities')
     .select('id,title,occurred_at,source,outcome,notes,metadata')
     .eq('user_id', userId)
     .is('deleted_at', null)
     .eq('type', 'call')
-    .eq('status', 'completed')
-    .order('occurred_at', { ascending: false })
-    .limit(500)
-  if (error) throw error
-  return (data || []).map(mapCallActivityRow)
+    .eq('status', 'completed'))
+  return data.map(mapCallActivityRow).sort((left, right) => String(right.occurred_at).localeCompare(String(left.occurred_at)))
 }
 
 export const saveCallActivity = async (userId: string, input: CallActivityInput, callId?: string, newCallId?: string) => {

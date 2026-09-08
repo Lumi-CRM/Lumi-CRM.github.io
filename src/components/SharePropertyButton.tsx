@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { createSignedFileUrls, listCrmFiles } from '../lib/files'
 import { flushOfflineFiles, getOfflineFileQueueCount } from '../lib/offlineFiles'
-import { flushOfflineQueue } from '../lib/offlineTransport'
+import { flushOfflineQueue, getOfflineQueueCount } from '../lib/offlineTransport'
 import type { Property } from '../types'
 
 const SharePropertyButton = ({ property }: { property: Property }) => {
@@ -20,6 +20,7 @@ const SharePropertyButton = ({ property }: { property: Property }) => {
       if (!navigator.onLine) throw new Error('Публичную ссылку можно создать после подключения к интернету')
       await flushOfflineQueue()
       await flushOfflineFiles(user.id)
+      if (await getOfflineQueueCount(user.id)) throw new Error('Сначала дождитесь синхронизации изменений с облаком')
       if (await getOfflineFileQueueCount(user.id)) throw new Error('Сначала дождитесь загрузки фотографий в облако')
       const files = await listCrmFiles({ userId: user.id, bucket: 'crm-images', propertyId: property.id })
       const urls = await createSignedFileUrls(files, 365 * 24 * 3600)
@@ -37,9 +38,9 @@ const SharePropertyButton = ({ property }: { property: Property }) => {
       }
       const { data, error: saveError } = await supabase.from('property_shares').upsert({
         user_id: user.id, property_id: property.id, snapshot, active: true,
-      }, { onConflict: 'user_id,property_id' }).select('slug').single()
+      }, { onConflict: 'user_id,property_id' }).select('slug').setHeader('x-lumicrm-network-only', 'true').single()
       if (saveError) throw saveError
-      const url = `${window.location.origin}/p/${data.slug}`
+      const url = `https://lumi-crm.github.io/p/${data.slug}`
       await navigator.clipboard.writeText(url)
       setCopied(true)
     } catch (shareError) {

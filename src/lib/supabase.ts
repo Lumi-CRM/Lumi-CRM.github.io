@@ -44,6 +44,7 @@ export const checkCloudSession = async (expectedUserId: string) => {
       .from('profiles')
       .select('id')
       .eq('id', expectedUserId)
+      .setHeader('x-lumicrm-network-only', 'true')
       .maybeSingle()
     if (profileError || !profile) {
       return { valid: false, message: 'Профиль не найден в текущей базе. Сначала сохраните резервную копию, затем войдите в аккаунт заново.' }

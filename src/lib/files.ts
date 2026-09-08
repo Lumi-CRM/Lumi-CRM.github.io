@@ -9,6 +9,7 @@ import {
   queueOfflineFileDeletion,
   setPendingPrimaryFile,
 } from './offlineFiles'
+import { validateCrmUpload } from './uploadValidation'
 
 export type CrmBucket = 'crm-documents' | 'crm-images'
 
@@ -44,7 +45,6 @@ interface UploadCrmFileInput extends FileFilters {
   description?: string
 }
 
-const MAX_FILE_SIZE = 25 * 1024 * 1024
 const FILE_NETWORK_TIMEOUT_MS = 8_000
 
 const withFileTimeout = <T,>(request: PromiseLike<T>, timeoutMs = FILE_NETWORK_TIMEOUT_MS) => new Promise<T>((resolve, reject) => {
@@ -118,7 +118,7 @@ export const uploadCrmFile = async ({
   description,
   file,
 }: UploadCrmFileInput) => {
-  if (file.size > MAX_FILE_SIZE) throw new Error('Файл больше 25 МБ')
+  validateCrmUpload(file, bucket)
 
   const entityPath = propertyId
     ? `properties/${propertyId}`

@@ -79,17 +79,27 @@ const WRITE_TIMEOUT_MS = 2_000
 let sessionProvider: (() => Promise<SessionSnapshot>) | null = null
 let syncPromise: Promise<number> | null = null
 let syncTimer: number | null = null
+let transportConfig: { url: string; fallback?: string; apiKey: string } | null = null
+let activeUserId: string | null = null
+
+export const setOfflineSession = (userId: string | null) => {
+  activeUserId = userId
+}
 
 const hasIndexedDb = () => typeof indexedDB !== 'undefined'
 const isOnline = () => typeof navigator === 'undefined' || navigator.onLine
 
 const fetchWithTimeout = async (request: Request, timeoutMs: number) => {
+  request.signal.throwIfAborted()
   const controller = new AbortController()
+  const abort = () => controller.abort(request.signal.reason)
+  request.signal.addEventListener('abort', abort, { once: true })
   const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs)
   try {
     return await nativeFetch(new Request(request, { signal: controller.signal }))
   } finally {
     globalThis.clearTimeout(timeout)
+    request.signal.removeEventListener('abort', abort)
   }
 }
 
@@ -103,12 +113,16 @@ export const rewriteRequestUrl = (urlValue: string, endpoint: string) => {
 }
 
 const fetchWithFallback = async (request: Request, timeoutMs: number, fallbackUrl?: string) => {
+  // Repeating any mutation through a second origin after an ambiguous timeout
+  // can duplicate a record. Stable-ID writes are queued and replayed instead.
+  if (!['GET', 'HEAD'].includes(request.method)) fallbackUrl = undefined
   let primaryResponse: Response | null = null
   let primaryError: unknown
   try {
     primaryResponse = await fetchWithTimeout(request.clone(), timeoutMs)
     if (primaryResponse.status < 500 || !fallbackUrl) return primaryResponse
   } catch (error) {
+    request.signal.throwIfAborted()
     primaryError = error
     if (!fallbackUrl) throw error
   }
@@ -155,10 +169,10 @@ const runStore = async <T>(storeName: string, mode: IDBTransactionMode, operatio
   return new Promise<T>((resolve, reject) => {
     const transaction = database.transaction(storeName, mode)
     const request = operation(transaction.objectStore(storeName))
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error ?? new Error('IndexedDB operation failed'))
-    transaction.oncomplete = () => database.close()
-    transaction.onerror = () => reject(transaction.error ?? new Error('IndexedDB transaction failed'))
+    request.onerror = () => { database.close(); reject(request.error ?? new Error('IndexedDB operation failed')) }
+    transaction.oncomplete = () => { database.close(); resolve(request.result) }
+    transaction.onabort = () => { database.close(); reject(transaction.error ?? new Error('IndexedDB transaction aborted')) }
+    transaction.onerror = () => { database.close(); reject(transaction.error ?? new Error('IndexedDB transaction failed')) }
   })
 }
 
@@ -168,13 +182,13 @@ const getAllByIndex = async <T>(storeName: string, indexName: string, value: IDB
     const transaction = database.transaction(storeName, 'readonly')
     const request = transaction.objectStore(storeName).index(indexName).getAll(value)
     request.onsuccess = () => resolve(request.result as T[])
-    request.onerror = () => reject(request.error ?? new Error('IndexedDB query failed'))
+    request.onerror = () => { database.close(); reject(request.error ?? new Error('IndexedDB query failed')) }
     transaction.oncomplete = () => database.close()
-    transaction.onerror = () => reject(transaction.error ?? new Error('IndexedDB transaction failed'))
+    transaction.onerror = () => { database.close(); reject(transaction.error ?? new Error('IndexedDB transaction failed')) }
   })
 }
 
-const cacheKey = (userId: string, request: Request) => `${userId}:${request.url}:${request.headers.get('accept') ?? ''}`
+const cacheKey = (userId: string, request: Request) => `${userId}:${request.url}:${request.method}:${['accept', 'range', 'prefer', 'accept-profile'].map(key => request.headers.get(key) ?? '').join(':')}`
 
 const decodeUserId = (request: Request) => {
   const authorization = request.headers.get('authorization')
@@ -189,9 +203,9 @@ const decodeUserId = (request: Request) => {
 }
 
 const getTable = (url: URL) => {
-  const marker = '/rest/v1/'
-  const position = url.pathname.indexOf(marker)
-  return position < 0 ? null : decodeURIComponent(url.pathname.slice(position + marker.length).split('/')[0])
+  const match = url.pathname.match(/^\/rest\/v1\/([a-z_]+)$/)
+  const table = match?.[1]
+  return table && (UUID_TABLES.has(table) || table === 'profiles' || table === 'property_details') ? table : null
 }
 
 const safeHeaders = (headers: Headers) => {
@@ -342,76 +356,29 @@ const cacheResponse = async (request: Request, response: Response, userId: strin
 }
 
 const responseFromCache = (cached: CachedResponse) => new Response(cached.body, {
-  status: 200,
+  status: cached.status,
   headers: { 'content-type': 'application/json', ...cached.headers, 'x-lumicrm-offline': 'cache' },
 })
 
-const findCachedResponse = async (request: Request, userId: string, table: string) => {
+const findCachedResponse = async (request: Request, userId: string, _table: string) => {
   if (!hasIndexedDb()) return null
   const exact = await runStore<CachedResponse | undefined>(RESPONSE_STORE, 'readonly', store => store.get(cacheKey(userId, request))).catch(() => undefined)
   if (exact) return responseFromCache(exact)
 
-  const candidates = await getAllByIndex<CachedResponse>(RESPONSE_STORE, 'userTable', `${userId}:${table}`).catch(() => [])
-  for (const candidate of candidates.sort((a, b) => b.updatedAt - a.updatedAt)) {
-    try {
-      const parsed = JSON.parse(candidate.body)
-      if (!Array.isArray(parsed)) continue
-      const rows = filterRowsForUrl(parsed, request.url)
-      const wantsObject = request.headers.get('accept')?.includes('application/vnd.pgrst.object')
-      return new Response(JSON.stringify(wantsObject ? rows[0] ?? null : rows), {
-        status: 200,
-        headers: { 'content-type': 'application/json', 'x-lumicrm-offline': 'derived-cache' },
-      })
-    } catch {
-      // Try the next usable table snapshot.
-    }
-  }
+  // Another query/page is not evidence that a complete table is cached.
   return null
 }
 
 const matchesMutation = (row: Record<string, unknown>, url: string) => filterRowsForUrl([row], url).length === 1
 
-const rowWithMutationFilters = (payload: Record<string, unknown>, urlValue: string) => {
-  const row = { ...payload }
-  const url = new URL(urlValue)
-  url.searchParams.forEach((expression, field) => {
-    const decoded = parseFilterValue(expression)
-    if (row[field] === undefined && decoded.startsWith('eq.')) row[field] = decoded.slice(3)
-  })
-  return row
-}
-
-const seedCachedTable = async (userId: string, table: string, urlValue: string, method: string, incoming: Record<string, unknown>[]) => {
-  if (method === 'DELETE') return
-  const rows = incoming.map(row => rowWithMutationFilters(row, urlValue))
-  if (!rows.length) return
-  const url = new URL(urlValue)
-  url.search = '?select=*'
-  const request = new Request(url, { headers: { accept: 'application/json' } })
-  const record: CachedResponse = {
-    key: cacheKey(userId, request),
-    userId,
-    userTable: `${userId}:${table}`,
-    table,
-    url: request.url,
-    body: JSON.stringify(rows),
-    status: 200,
-    headers: { 'content-type': 'application/json' },
-    updatedAt: Date.now(),
-  }
-  await runStore(RESPONSE_STORE, 'readwrite', store => store.put(record))
-}
-
 const updateCachedTable = async (userId: string, table: string, method: string, url: string, payload: unknown) => {
   if (!hasIndexedDb()) return
   const records = await getAllByIndex<CachedResponse>(RESPONSE_STORE, 'userTable', `${userId}:${table}`).catch(() => [])
   const incoming = (Array.isArray(payload) ? payload : [payload]).filter(Boolean) as Record<string, unknown>[]
-  let updatedSnapshots = 0
   await Promise.all(records.map(async record => {
     try {
       const parsed = JSON.parse(record.body)
       if (!Array.isArray(parsed)) return
-      updatedSnapshots += 1
       let rows = parsed as Record<string, unknown>[]
       if (method === 'POST') {
         const mutationUrl = new URL(url)
@@ -429,14 +396,15 @@ const updateCachedTable = async (userId: string, table: string, method: string, 
       } else if (method === 'DELETE') {
         rows = rows.filter(row => !matchesMutation(row, url))
       }
-      record.body = JSON.stringify(filterRowsForUrl(rows, record.url))
+      const pageUrl = new URL(record.url)
+      pageUrl.searchParams.delete('offset') // Cached rows already belong to this page.
+      record.body = JSON.stringify(filterRowsForUrl(rows, pageUrl.toString()))
       record.updatedAt = Date.now()
       await runStore(RESPONSE_STORE, 'readwrite', store => store.put(record))
     } catch {
       // A malformed old cache entry must not block an offline write.
     }
   }))
-  if (updatedSnapshots === 0) await seedCachedTable(userId, table, url, method, incoming)
 }
 
 const syntheticMutationResponse = (request: Request, method: string, payload: unknown) => {
@@ -485,23 +453,36 @@ const enqueueMutation = async (request: Request, userId: string, table: string) 
 }
 
 export const createOfflineFetch = (supabaseUrl: string, fallbackUrl?: string) => async (input: RequestInfo | URL, init?: RequestInit) => {
-  const request = new Request(input, init)
+  let request = new Request(input, init)
+  request.signal.throwIfAborted()
+  const networkOnly = request.headers.get('x-lumicrm-network-only') === 'true'
+  request.headers.delete('x-lumicrm-network-only')
   const url = new URL(request.url)
   const supabaseOrigins = new Set([supabaseUrl, fallbackUrl].filter(Boolean).map(value => new URL(value as string).origin))
   const isSupabaseRequest = supabaseOrigins.has(url.origin)
   const table = isSupabaseRequest ? getTable(url) : null
   if (!table) {
-    if (isSupabaseRequest) return fetchWithFallback(request, request.method === 'GET' ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS, fallbackUrl)
+    if (isSupabaseRequest) return fetchWithFallback(request, 30_000, fallbackUrl)
     return nativeFetch(request)
   }
 
   const userId = decodeUserId(request)
   if (!userId) return nativeFetch(request)
+  if (activeUserId !== userId) return nativeFetch(request)
   const method = request.method.toUpperCase()
+  transportConfig = { url: supabaseUrl, fallback: fallbackUrl, apiKey: request.headers.get('apikey') ?? '' }
+  if (networkOnly || method === 'HEAD') return fetchWithFallback(request, 30_000, fallbackUrl)
+  if (method === 'POST') {
+    const body = await request.clone().text()
+    const payload = prepareOfflinePayload(table, body ? JSON.parse(body) : {})
+    request = new Request(request, { body: JSON.stringify(payload) })
+  }
 
   if (method === 'GET' || method === 'HEAD') {
     if (isOnline()) {
       const cached = await findCachedResponse(request, userId, table)
+      // A stale server snapshot must not erase pending local changes.
+      if (cached && await getOfflineQueueCount(userId) > 0) return cached
       const networkRequest = fetchWithFallback(request.clone(), READ_TIMEOUT_MS, fallbackUrl)
       if (cached) {
         const cachedBody = await cached.clone().text()
@@ -511,7 +492,7 @@ export const createOfflineFetch = (supabaseUrl: string, fallbackUrl?: string) =>
           await cacheResponse(request, response, userId, table)
           emitStatus({ online: true, pending: await getOfflineQueueCount(userId), syncing: false })
           if (networkBody !== cachedBody && typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('lumicrm:remote-data-changed'))
+            window.dispatchEvent(new CustomEvent('lumicrm:remote-data-changed', { detail: { table, userId } }))
           }
         }).catch(async () => {
           emitStatus({
@@ -531,6 +512,7 @@ export const createOfflineFetch = (supabaseUrl: string, fallbackUrl?: string) =>
         }
         if (response.status < 500) return response
       } catch {
+        request.signal.throwIfAborted()
         // Fall through to the device-local snapshot.
       }
       emitStatus({ online: false, pending: await getOfflineQueueCount(userId), syncing: false, error: 'Облако недоступно — используется копия на устройстве' })
@@ -543,14 +525,20 @@ export const createOfflineFetch = (supabaseUrl: string, fallbackUrl?: string) =>
       })
   }
 
-  if (isOnline()) {
+  // Preserve mutation ordering when earlier changes have not reached the server.
+  if (isOnline() && await getOfflineQueueCount(userId) === 0) {
     try {
       const response = await fetchWithFallback(request.clone(), WRITE_TIMEOUT_MS, fallbackUrl)
       if (response.status < 500) {
+        if (response.ok) {
+          const body = request.body ? JSON.parse(await request.clone().text()) : {}
+          await updateCachedTable(userId, table, method, request.url, body)
+        }
         emitStatus({ online: true, pending: await getOfflineQueueCount(userId), syncing: false })
         return response
       }
     } catch {
+      request.signal.throwIfAborted()
       // A temporary connection failure is handled as an offline write.
     }
     emitStatus({ online: false, pending: await getOfflineQueueCount(userId), syncing: false, error: 'Изменение сохранено на устройстве и ожидает синхронизации' })
@@ -593,28 +581,30 @@ const replayUrl = (entry: QueuedRequest) => {
 export const flushOfflineQueue = async () => {
   if (syncPromise) return syncPromise
   syncPromise = (async () => {
-    if (!sessionProvider || !isOnline()) return 0
+    if (!sessionProvider || !isOnline() || !transportConfig || !activeUserId) return 0
     const session = await sessionProvider()
-    if (!session.userId || !session.accessToken) return 0
+    if (!session.userId || !session.accessToken || session.userId !== activeUserId) return 0
     const entries = (await getAllByIndex<QueuedRequest>(QUEUE_STORE, 'userId', session.userId).catch(() => []))
       .sort((a, b) => a.createdAt - b.createdAt)
     emitStatus({ online: true, pending: entries.length, syncing: entries.length > 0 })
     let synced = 0
 
-    for (const entry of entries) {
+    for (const entry of entries.slice(0, 50)) {
       try {
+        const currentSession = await sessionProvider()
+        if (currentSession.userId !== session.userId || !currentSession.accessToken) break
         const headers = new Headers(entry.headers)
-        headers.set('authorization', `Bearer ${session.accessToken}`)
-        headers.set('apikey', import.meta.env.VITE_SUPABASE_ANON_KEY)
+        headers.set('authorization', `Bearer ${currentSession.accessToken}`)
+        headers.set('apikey', transportConfig.apiKey)
         if (entry.method === 'POST') {
           const prefer = headers.get('prefer') ?? ''
           if (!prefer.includes('resolution=')) headers.set('prefer', [prefer, 'resolution=merge-duplicates'].filter(Boolean).join(','))
         }
-        const response = await fetchWithFallback(new Request(rewriteRequestUrl(replayUrl(entry), import.meta.env.VITE_SUPABASE_URL), {
+        const response = await fetchWithFallback(new Request(rewriteRequestUrl(replayUrl(entry), transportConfig.url), {
           method: entry.method,
           headers,
           body: entry.body || undefined,
-        }), WRITE_TIMEOUT_MS, import.meta.env.VITE_SUPABASE_FALLBACK_URL)
+        }), WRITE_TIMEOUT_MS, transportConfig.fallback)
         if (response.ok) {
           await runStore(QUEUE_STORE, 'readwrite', store => store.delete(entry.id))
           synced += 1
@@ -629,6 +619,7 @@ export const flushOfflineQueue = async () => {
         entry.attempts += 1
         entry.lastError = `HTTP ${response.status}: ${(await response.text()).slice(0, 240)}`
         await runStore(QUEUE_STORE, 'readwrite', store => store.put(entry))
+        break // Later dependent changes must not overtake a rejected write.
       } catch (error) {
         entry.attempts += 1
         entry.lastError = error instanceof Error ? error.message : String(error)

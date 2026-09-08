@@ -63,7 +63,7 @@ const EntityFilesPanel = ({ clientId, propertyId, title = 'Документы', 
           {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
           {uploading ? 'Загружаем…' : 'Загрузить'}
         </button>
-        <input ref={inputRef} type="file" multiple className="hidden" onChange={upload} accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.zip,.rar,.jpg,.jpeg,.png" />
+        <input ref={inputRef} type="file" multiple className="hidden" onChange={upload} accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,.jpg,.jpeg,.png,.webp" />
       </div>
 
       {(error || loadError) && <p className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">{error || loadError}</p>}

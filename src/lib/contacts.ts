@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { fetchAllRows } from './pagination'
 import { inferContactRoles, type ContactRole } from './contactRoles'
 import { mapClientRow } from './propertyMapping'
 import { moveToTrash } from './trash'
@@ -72,12 +73,12 @@ const contactPayload = (input: ContactInput) => ({
 })
 
 export const fetchContactRecords = async (userId: string): Promise<Client[]> => {
-  const { data, error } = await supabase
+  const { data, error } = await fetchAllRows(() => supabase
     .from('clients')
     .select('*')
     .eq('user_id', userId)
     .is('deleted_at', null)
-    .order('created_at', { ascending: false })
+    .order('created_at', { ascending: false }))
   if (error) throw error
   return (data || []).map(mapClientRow)
 }
@@ -177,12 +178,12 @@ export const trashContact = async (userId: string, contactId: string) => {
 }
 
 export const fetchContactSummaries = async (userId: string): Promise<ContactSummary[]> => {
-  const { data, error } = await supabase
+  const { data, error } = await fetchAllRows(() => supabase
     .from('clients')
     .select('id,type,first_name,last_name,middle_name,phone,email,roles,source,next_contact_at,is_favorite')
     .eq('user_id', userId)
     .is('deleted_at', null)
-    .order('created_at', { ascending: false })
+    .order('created_at', { ascending: false }))
   if (error) throw error
 
   return (data || []).map(row => ({

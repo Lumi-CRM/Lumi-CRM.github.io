@@ -1,8 +1,11 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { isExistingEmailSignUp } from '../lib/authGuards'
 import type { ThemeId } from './ThemeContext'
+import { setOfflineSession } from '../lib/offlineTransport'
+import { setOfflineFileSession } from '../lib/offlineFiles'
+import { crmQueryKeys, queryClient } from '../lib/queryClient'
 
 export type IconSize = 'compact' | 'comfortable' | 'large'
 export type InterfaceDensity = 'compact' | 'comfortable' | 'spacious'
@@ -103,15 +106,6 @@ const saveUserSnapshot = (user: User) => {
   }
 }
 
-const readLastUserSnapshot = () => {
-  try {
-    const userId = window.localStorage.getItem(lastUserStorageKey)
-    return userId ? readUserSnapshot(userId) : null
-  } catch {
-    return null
-  }
-}
-
 const hasLocalOnboardingCompletion = (userId: string) => {
   try {
     return window.localStorage.getItem(onboardingStorageKey(userId)) === 'true'
@@ -172,14 +166,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const loadGeneration = useRef(0)
+  const activeSessionUserId = useRef<string | null>(null)
 
   const loadUser = async (source: SupabaseUser | null) => {
+    const generation = ++loadGeneration.current
+    const nextUserId = source?.id ?? null
+    if (activeSessionUserId.current !== nextUserId) {
+      activeSessionUserId.current = nextUserId
+      setOfflineSession(nextUserId)
+      setOfflineFileSession(nextUserId)
+      queryClient.removeQueries({ queryKey: crmQueryKeys.root })
+    }
     if (!source) {
       setUser(null)
       return
     }
     const cachedUser = readUserSnapshot(source.id)
     const applyMappedUser = (mappedUser: User) => {
+      if (generation !== loadGeneration.current || activeSessionUserId.current !== source.id) return
       if (hasLocalOnboardingCompletion(source.id)) mappedUser.onboardingCompleted = true
       saveUserSnapshot(mappedUser)
       setUser(mappedUser)
@@ -226,19 +231,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const { data, error: sessionError } = await supabase.auth.getSession()
       if (!mounted) return
       if (sessionError) setError('Не удалось проверить сессию Supabase')
-      if (sessionError && !data.session) {
-        const cachedUser = readLastUserSnapshot()
-        if (cachedUser) setUser(cachedUser)
-        else await loadUser(null)
-      } else {
-        await loadUser(data.session?.user ?? null)
-      }
+      await loadUser(data.session?.user ?? null)
       if (mounted) setIsLoading(false)
     }
 
     void loadSession()
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!mounted) return
+      if (!session) {
+        activeSessionUserId.current = null
+        setOfflineSession(null)
+        setOfflineFileSession(null)
+        setUser(null)
+      }
       window.setTimeout(() => {
         if (!mounted) return
         void loadUser(session?.user ?? null).finally(() => {
@@ -376,7 +381,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setError('Для загрузки аватара нужно подключение к интернету.')
       return false
     }
-    if (!file.type.startsWith('image/')) {
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type.toLowerCase())) {
       setError('Выберите изображение в формате JPG, PNG или WebP.')
       return false
     }

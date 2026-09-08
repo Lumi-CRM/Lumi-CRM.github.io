@@ -8,6 +8,7 @@ import {
   type PropertyOwnerRow,
 } from './propertyOwners'
 import { supabase } from './supabase'
+import { fetchAllRows } from './pagination'
 
 export type PropertyCatalog = {
   properties: Property[]
@@ -16,37 +17,37 @@ export type PropertyCatalog = {
 }
 
 export const fetchDealProperties = async (userId: string): Promise<Property[]> => {
-  const { data, error } = await supabase
+  const { data, error } = await fetchAllRows(() => supabase
     .from('properties')
     .select('*')
     .eq('user_id', userId)
     .is('deleted_at', null)
-    .order('created_at', { ascending: false })
+    .order('created_at', { ascending: false }))
   if (error) throw error
   return (data || []).map(mapPropertyRow)
 }
 
 export const fetchPropertyCatalog = async (userId: string): Promise<PropertyCatalog> => {
   const [propertiesResult, clientsResult, ownersResult] = await Promise.all([
-    supabase
+    fetchAllRows(() => supabase
       .from('properties')
       .select('*')
       .eq('user_id', userId)
       .is('deleted_at', null)
       .neq('status', 'archived')
-      .order('created_at', { ascending: false }),
-    supabase
+      .order('created_at', { ascending: false })),
+    fetchAllRows(() => supabase
       .from('clients')
       .select('*')
       .eq('user_id', userId)
       .is('deleted_at', null)
-      .order('created_at', { ascending: false }),
-    supabase
+      .order('created_at', { ascending: false })),
+    fetchAllRows(() => supabase
       .from('property_owners')
       .select('id,property_id,client_id,ownership_share,is_primary')
       .eq('user_id', userId)
       .order('is_primary', { ascending: false })
-      .order('created_at', { ascending: true }),
+      .order('created_at', { ascending: true })),
   ])
   if (propertiesResult.error) throw propertiesResult.error
 
@@ -61,19 +62,20 @@ export const fetchPropertyCatalog = async (userId: string): Promise<PropertyCata
   if (properties.length === 0) return { properties, clients, propertyOwners }
 
   try {
-    const { data: mediaRows, error: mediaError } = await supabase
+    const { data: mediaRows, error: mediaError } = await fetchAllRows(() => supabase
       .from('crm_files')
       .select('*')
       .eq('user_id', userId)
       .eq('bucket', 'crm-images')
-      .in('property_id', properties.map(property => property.id))
+      .not('property_id', 'is', null)
       .order('is_primary', { ascending: false })
-      .order('created_at', { ascending: true })
+      .order('created_at', { ascending: true }))
     if (mediaError || !mediaRows?.length) return { properties, clients, propertyOwners }
 
     const covers = new Map<string, CrmFileRecord>()
+    const activeIds = new Set(properties.map(property => property.id))
     for (const file of mediaRows as CrmFileRecord[]) {
-      if (file.property_id && !covers.has(file.property_id)) covers.set(file.property_id, file)
+      if (file.property_id && activeIds.has(file.property_id) && !covers.has(file.property_id)) covers.set(file.property_id, file)
     }
     const urls = await createSignedFileUrls(Array.from(covers.values()))
     return {

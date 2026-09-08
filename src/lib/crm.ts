@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { fetchAllRows } from './pagination'
 import { indexDealFinance } from './dealFinance'
 
 export type OverviewTask = {
@@ -118,21 +119,20 @@ const emptyOverview: CrmOverview = {
 
 export async function getCrmOverview(userId: string): Promise<CrmOverview> {
   const [clients, properties, tasks, events, deals, financeActivities] = await Promise.all([
-    supabase.from('clients').select('id,type,roles,mortgage_status,created_at').eq('user_id', userId).is('deleted_at', null),
-    supabase
+    fetchAllRows(() => supabase.from('clients').select('id,type,roles,mortgage_status,created_at').eq('user_id', userId).is('deleted_at', null)),
+    fetchAllRows(() => supabase
       .from('properties')
       .select('id,address,price,status,property_type,listing_type,created_at')
       .eq('user_id', userId)
       .is('deleted_at', null)
       .neq('status', 'archived')
-      .order('created_at', { ascending: false }),
-    supabase
+      .order('created_at', { ascending: false })),
+    fetchAllRows(() => supabase
       .from('tasks')
       .select('id,title,due_date,due_time,priority,status,is_completed,completed_at')
       .eq('user_id', userId)
       .is('deleted_at', null)
-      .order('due_date', { ascending: true, nullsFirst: false })
-      .limit(500),
+      .order('due_date', { ascending: true, nullsFirst: false })),
     supabase
       .from('events')
       .select('id,type,title,event_date,event_time,location,is_completed')
@@ -141,8 +141,8 @@ export async function getCrmOverview(userId: string): Promise<CrmOverview> {
       .eq('is_completed', false)
       .order('event_date', { ascending: true })
       .limit(8),
-    supabase.from('deals').select('id,status,price,created_at').eq('user_id', userId).is('deleted_at', null),
-    supabase.from('crm_activities').select('external_key,metadata').eq('user_id', userId).eq('type', 'note').ilike('external_key', 'deal-finance:%').is('deleted_at', null),
+    fetchAllRows(() => supabase.from('deals').select('id,status,price,created_at').eq('user_id', userId).is('deleted_at', null)),
+    fetchAllRows(() => supabase.from('crm_activities').select('id,external_key,metadata').eq('user_id', userId).eq('type', 'note').ilike('external_key', 'deal-finance:%').is('deleted_at', null)),
   ])
 
   const firstError = [clients.error, properties.error, tasks.error, events.error, deals.error, financeActivities.error].find(Boolean)

@@ -11,6 +11,37 @@ interface Snapshot {
   contact?: { name?: string; phone?: string; email?: string; position?: string }
 }
 
+const safeString = (value: unknown, maximum = 5000) => typeof value === 'string' ? value.slice(0, maximum) : undefined
+const safeNumber = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? value : undefined
+const safeHttpsUrl = (value: unknown) => {
+  if (typeof value !== 'string') return null
+  try {
+    const url = new URL(value)
+    return url.protocol === 'https:' && !url.username && !url.password ? url.toString() : null
+  } catch { return null }
+}
+const normalizeSnapshot = (value: unknown): Snapshot | null => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const source = value as Record<string, unknown>
+  const address = safeString(source.address, 500)
+  if (!address) return null
+  const contactSource = source.contact && typeof source.contact === 'object' && !Array.isArray(source.contact)
+    ? source.contact as Record<string, unknown> : {}
+  const photos = Array.isArray(source.photos) ? source.photos.slice(0, 100).flatMap(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+    const photo = item as Record<string, unknown>
+    const url = safeHttpsUrl(photo.url)
+    return url ? [{ url, name: safeString(photo.name, 300) || 'Фото объекта', category: safeString(photo.category, 100), primary: photo.primary === true }] : []
+  }) : []
+  return {
+    address, price: safeNumber(source.price), rooms: safeNumber(source.rooms), area: safeNumber(source.area),
+    floor: safeNumber(source.floor), totalFloors: safeNumber(source.totalFloors), propertyType: safeString(source.propertyType, 100),
+    description: safeString(source.description), repair: safeString(source.repair, 100), balcony: source.balcony === true,
+    elevator: source.elevator === true, parking: source.parking === true, heating: safeString(source.heating, 100), walls: safeString(source.walls, 100),
+    photos, contact: { name: safeString(contactSource.name, 200), phone: safeString(contactSource.phone, 80), email: safeString(contactSource.email, 320), position: safeString(contactSource.position, 200) },
+  }
+}
+
 const PublicPropertyPage = () => {
   const { slug } = useParams()
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null)
@@ -18,16 +49,24 @@ const PublicPropertyPage = () => {
   const [index, setIndex] = useState(0)
 
   useEffect(() => {
+    let active = true
     const load = async () => {
-      const { data } = await supabase.from('property_shares').select('snapshot').eq('slug', slug).eq('active', true).maybeSingle()
-      if (data?.snapshot) {
-        const value = data.snapshot as Snapshot
+      setLoading(true); setSnapshot(null); setIndex(0)
+      if (!slug || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(slug)) {
+        if (active) setLoading(false)
+        return
+      }
+      const { data } = await supabase.rpc('get_public_property_share', { p_slug: slug }).setHeader('x-lumicrm-network-only', 'true').maybeSingle()
+      const row = data as { snapshot?: unknown } | null
+      const value = normalizeSnapshot(row?.snapshot)
+      if (active && value) {
         value.photos = [...(value.photos || [])].sort((a, b) => Number(Boolean(b.primary)) - Number(Boolean(a.primary)))
         setSnapshot(value)
       }
-      setLoading(false)
+      if (active) setLoading(false)
     }
     void load()
+    return () => { active = false }
   }, [slug])
 
   if (loading) return <main className="lumi-shell flex min-h-screen items-center justify-center"><p className="lumi-muted">Загружаем резюме объекта…</p></main>

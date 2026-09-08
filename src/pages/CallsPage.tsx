@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Calendar, Download, ExternalLink, Eye, Pencil, Phone, Plus, RefreshCw, Search, Trash2 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import Modal from '../components/Modal'
 import { printCurrentPage } from '../lib/print'
 import { useCallActivities } from '../hooks/useCallActivities'
 import type { CallMetadata, CallType, WorkCall } from '../lib/callActivityMapping'
+import { safeExternalUrl } from '../lib/safeExternalUrl'
 
 const CALL_TYPES: Array<{ value: CallType; label: string }> = [
   { value: 'cold', label: 'Холодные' },
@@ -67,6 +68,16 @@ const CallsPage = () => {
   const [search, setSearch] = useState('')
   const [form, setForm] = useState(initialForm)
   const [error, setError] = useState('')
+  const draftKey = user ? `lumicrm-call-draft:${user.id}` : ''
+
+  useEffect(() => {
+    if (!isModalOpen || !draftKey || editingId) return
+    try {
+      sessionStorage.setItem(draftKey, JSON.stringify(form))
+    } catch {
+      // The form remains usable when private storage is unavailable.
+    }
+  }, [draftKey, editingId, form, isModalOpen])
 
   const filtered = useMemo(() => calls.filter(call => {
     const metadata = call.metadata || {}
@@ -79,7 +90,14 @@ const CallsPage = () => {
 
   const openCreate = () => {
     setEditingId(null)
-    setForm(initialForm())
+    let draft = initialForm()
+    try {
+      const stored = draftKey ? sessionStorage.getItem(draftKey) : null
+      if (stored) draft = { ...draft, ...JSON.parse(stored) as Partial<CallForm> }
+    } catch {
+      // Ignore a damaged or unavailable draft.
+    }
+    setForm(draft)
     setError('')
     setIsModalOpen(true)
   }
@@ -92,7 +110,8 @@ const CallsPage = () => {
     setIsModalOpen(true)
   }
 
-  const closeForm = () => {
+  const closeForm = (discardDraft = true) => {
+    if (discardDraft && draftKey && !editingId) sessionStorage.removeItem(draftKey)
     setIsModalOpen(false)
     setEditingId(null)
     setForm(initialForm())
@@ -125,7 +144,7 @@ const CallsPage = () => {
       setError(editingId ? 'Не удалось обновить звонок' : 'Не удалось сохранить звонок')
       return
     }
-    closeForm()
+    closeForm(true)
   }
 
   const remove = async (id: string) => {
@@ -167,9 +186,10 @@ const CallsPage = () => {
           {filtered.map(call => {
             const meta = call.metadata || {}
             const typeLabel = CALL_TYPES.find(type => type.value === meta.call_type)?.label || 'Звонок'
+            const propertyUrl = safeExternalUrl(meta.property_url)
             return <article data-print-item key={call.id} className="lumi-panel lumi-content-auto min-w-0 rounded-2xl border p-5">
               <div className="flex items-start gap-3"><div className="lumi-accent-soft rounded-xl p-2.5"><Phone className="h-5 w-5" /></div><div className="min-w-0 flex-1"><p className="lumi-accent-text text-xs font-semibold uppercase">{typeLabel}</p><h2 className="lumi-text mt-1 truncate text-lg font-semibold">{meta.contact_name || call.title}</h2><p className="lumi-muted mt-1 truncate text-sm">{meta.phone || 'Телефон не указан'}</p></div><button type="button" onClick={() => void remove(call.id)} className="rounded-lg bg-red-500/10 p-2 text-red-500" title="Удалить"><Trash2 className="h-4 w-4" /></button></div>
-              <div className="lumi-border mt-4 grid gap-2 border-t pt-4 text-sm"><p className="lumi-muted flex items-center gap-2"><Calendar className="h-4 w-4" />{call.occurred_at ? new Date(call.occurred_at).toLocaleString('ru-RU') : 'Дата не указана'}</p>{meta.address && <p className="lumi-muted truncate">{meta.address}</p>}{meta.price && <p className="lumi-text font-medium">{Number(meta.price).toLocaleString('ru-RU')} ₽</p>}{call.outcome && <p className="lumi-muted">Итог встречи: {call.outcome}</p>}{call.notes && <p className="lumi-muted line-clamp-3">{call.notes}</p>}{meta.property_url && <a href={meta.property_url} target="_blank" rel="noreferrer" className="lumi-accent-text inline-flex items-center gap-1">Открыть объявление <ExternalLink className="h-3.5 w-3.5" /></a>}</div>
+              <div className="lumi-border mt-4 grid gap-2 border-t pt-4 text-sm"><p className="lumi-muted flex items-center gap-2"><Calendar className="h-4 w-4" />{call.occurred_at ? new Date(call.occurred_at).toLocaleString('ru-RU') : 'Дата не указана'}</p>{meta.address && <p className="lumi-muted truncate">{meta.address}</p>}{meta.price && <p className="lumi-text font-medium">{Number(meta.price).toLocaleString('ru-RU')} ₽</p>}{call.outcome && <p className="lumi-muted">Итог встречи: {call.outcome}</p>}{call.notes && <p className="lumi-muted line-clamp-3">{call.notes}</p>}{propertyUrl && <a href={propertyUrl} target="_blank" rel="noreferrer" className="lumi-accent-text inline-flex items-center gap-1">Открыть объявление <ExternalLink className="h-3.5 w-3.5" /></a>}</div>
               <div data-print-hidden className="mt-4 grid grid-cols-2 gap-2"><button type="button" onClick={() => setSelectedCall(call)} className="lumi-control inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm"><Eye className="h-4 w-4" />Подробнее</button><button type="button" onClick={() => openEdit(call)} className="lumi-control inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm"><Pencil className="h-4 w-4" />Изменить</button></div>
             </article>
           })}
@@ -179,6 +199,7 @@ const CallsPage = () => {
       <Modal isOpen={Boolean(selectedCall)} onClose={() => setSelectedCall(null)} title="Карточка звонка">
         {selectedCall && (() => {
           const metadata = selectedCall.metadata || {}
+          const propertyUrl = safeExternalUrl(metadata.property_url)
           const details = [
             ['Тип звонка', CALL_TYPES.find(type => type.value === metadata.call_type)?.label || 'Не указан'],
             ['Дата и время', displayDateTime(selectedCall.occurred_at)],
@@ -204,13 +225,13 @@ const CallsPage = () => {
           ].filter(([, value]) => value && value !== 'Не указано')
           return <div className="space-y-5">
             <div className="grid gap-3 sm:grid-cols-2">{details.map(([label, value]) => <div key={label} className="lumi-panel-muted min-w-0 rounded-xl border p-4"><p className="lumi-muted text-xs">{label}</p><p className="lumi-text mt-1 break-words font-medium">{value}</p></div>)}</div>
-            {metadata.property_url && <a href={metadata.property_url} target="_blank" rel="noreferrer" className="lumi-accent-text inline-flex items-center gap-2">Открыть объявление <ExternalLink className="h-4 w-4" /></a>}
+            {propertyUrl && <a href={propertyUrl} target="_blank" rel="noreferrer" className="lumi-accent-text inline-flex items-center gap-2">Открыть объявление <ExternalLink className="h-4 w-4" /></a>}
             <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={() => setSelectedCall(null)} className="lumi-control rounded-xl px-5 py-3">Закрыть</button><button type="button" onClick={() => openEdit(selectedCall)} className="lumi-gradient-button inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-semibold"><Pencil className="h-4 w-4" />Редактировать</button></div>
           </div>
         })()}
       </Modal>
 
-      <Modal isOpen={isModalOpen} onClose={closeForm} title={editingId ? 'Редактировать звонок' : 'Записать выполненный звонок'}>
+      <Modal isOpen={isModalOpen} onClose={() => closeForm(false)} closeOnBackdrop={false} title={editingId ? 'Редактировать звонок' : 'Записать выполненный звонок'}>
         <form onSubmit={save} className="space-y-6">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <label className="lumi-muted-strong text-sm font-medium">Тип звонка<select value={form.call_type} onChange={event => setForm(current => ({ ...current, call_type: event.target.value as CallType }))} className="lumi-control mt-2 w-full rounded-xl px-4 py-3">{CALL_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
@@ -223,7 +244,7 @@ const CallsPage = () => {
           <label className="lumi-muted-strong block text-sm font-medium">Итог встречи<input value={form.meeting_outcome} onChange={event => setField('meeting_outcome', event.target.value)} className="lumi-control mt-2 w-full rounded-xl px-4 py-3" /></label>
           <label className="lumi-muted-strong block text-sm font-medium">Комментарии<textarea value={form.comments} onChange={event => setField('comments', event.target.value)} rows={3} className="lumi-control mt-2 w-full resize-none rounded-xl px-4 py-3" /></label>
           {form.call_type !== 'inbound' && <div className="grid gap-4 sm:grid-cols-2">{field('second_touch_at', 'Второе касание', 'datetime-local')}{field('second_comment', 'Второй комментарий')}</div>}
-          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={closeForm} className="lumi-control rounded-xl px-5 py-3">Отмена</button><button type="submit" disabled={saving} className="lumi-gradient-button rounded-xl px-6 py-3 font-semibold disabled:opacity-60">{saving ? 'Сохраняем…' : editingId ? 'Сохранить изменения' : 'Сохранить звонок'}</button></div>
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end"><button type="button" onClick={() => closeForm(true)} disabled={saving} className="lumi-control rounded-xl px-5 py-3 disabled:opacity-60">Отмена</button><button type="submit" disabled={saving} className="lumi-gradient-button rounded-xl px-6 py-3 font-semibold disabled:opacity-60">{saving ? 'Сохраняем…' : editingId ? 'Сохранить изменения' : 'Сохранить звонок'}</button></div>
         </form>
       </Modal>
     </div>

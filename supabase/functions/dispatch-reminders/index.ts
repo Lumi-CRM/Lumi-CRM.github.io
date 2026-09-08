@@ -1,6 +1,29 @@
 import { createClient } from 'npm:@supabase/supabase-js@2'
 import webpush from 'npm:web-push@3.6.7'
 
+const isAllowedPushEndpoint = (endpoint: unknown): endpoint is string => {
+  if (typeof endpoint !== 'string' || endpoint.length > 4096) return false
+  try {
+    const url = new URL(endpoint)
+    if (url.protocol !== 'https:' || url.username || url.password || url.port || url.hash) return false
+    const host = url.hostname.toLowerCase()
+    return host === 'fcm.googleapis.com' || host === 'push.services.mozilla.com'
+      || host.endsWith('.push.services.mozilla.com') || host === 'web.push.apple.com'
+      || host.endsWith('.notify.windows.com')
+  } catch { return false }
+}
+
+const isDispatcherAuthorized = async (supplied: string | null, expected: string | undefined) => {
+  if (!supplied || !expected || expected.length < 32 || supplied.length > 512) return false
+  const encoder = new TextEncoder()
+  const [a, b] = await Promise.all([supplied, expected].map(value => crypto.subtle.digest('SHA-256', encoder.encode(value))))
+  const left = new Uint8Array(a)
+  const right = new Uint8Array(b)
+  let mismatch = 0
+  for (let index = 0; index < left.length; index += 1) mismatch |= left[index] ^ right[index]
+  return mismatch === 0
+}
+
 interface NotificationJob {
   id: string
   user_id: string
@@ -24,6 +47,9 @@ const reminderText = (minutes: number) => minutes === 1440
 
 Deno.serve(async request => {
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
+  if (!await isDispatcherAuthorized(request.headers.get('x-lumicrm-dispatch-secret'), Deno.env.get('DISPATCH_SECRET'))) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: jsonHeaders })
+  }
 
   const supabaseUrl = Deno.env.get('SUPABASE_URL')!
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -33,7 +59,7 @@ Deno.serve(async request => {
   const admin = createClient(supabaseUrl, serviceKey)
 
   const { data, error: claimError } = await admin.rpc('claim_due_notification_jobs', { p_limit: 100 })
-  if (claimError) return new Response(JSON.stringify({ error: claimError.message }), { status: 500, headers: jsonHeaders })
+  if (claimError) return new Response(JSON.stringify({ error: 'Unable to claim reminders' }), { status: 500, headers: jsonHeaders })
   const jobs = (data ?? []) as NotificationJob[]
   if (!jobs.length) return new Response(JSON.stringify({ claimed: 0, sent: 0 }), { headers: jsonHeaders })
 
@@ -46,7 +72,9 @@ Deno.serve(async request => {
   const preferences = new Map((profiles ?? []).map(profile => [profile.id, profile.notification_preferences ?? {}]))
   const subscriptionsByUser = new Map<string, typeof subscriptions>()
   for (const subscription of subscriptions ?? []) {
+    if (!isAllowedPushEndpoint(subscription.endpoint)) continue
     const current = subscriptionsByUser.get(subscription.user_id) ?? []
+    if (current.length >= 20) continue
     current.push(subscription)
     subscriptionsByUser.set(subscription.user_id, current)
   }
@@ -90,7 +118,7 @@ Deno.serve(async request => {
         const results = await Promise.allSettled(targets.map(subscription => webpush.sendNotification({
           endpoint: subscription.endpoint,
           keys: { p256dh: subscription.p256dh, auth: subscription.auth },
-        }, payload)))
+        }, payload, { timeout: 5000 })))
         const expiredIds = results.flatMap((result, index) => result.status === 'rejected' && [404, 410].includes(Number((result.reason as { statusCode?: number })?.statusCode)) ? [targets[index].id] : [])
         if (expiredIds.length) await admin.from('push_subscriptions').update({ enabled: false }).in('id', expiredIds)
       }
@@ -110,4 +138,3 @@ Deno.serve(async request => {
 
   return new Response(JSON.stringify({ claimed: jobs.length, sent, skipped, failed }), { headers: jsonHeaders })
 })
-
