@@ -114,10 +114,27 @@ export const rewriteRequestUrl = (urlValue: string, endpoint: string) => {
   return target.toString()
 }
 
+export const orderEndpointsForOrigin = (
+  primary: string,
+  fallback?: string,
+  currentOrigin = typeof window !== 'undefined' ? window.location.origin : undefined,
+): [string, string | undefined] => {
+  const endpoints = [...new Set([primary, fallback].filter((value): value is string => Boolean(value)))]
+  const sameOrigin = currentOrigin
+    ? endpoints.find(endpoint => new URL(endpoint).origin === currentOrigin)
+    : undefined
+  if (!sameOrigin) return [primary, fallback]
+  return [sameOrigin, endpoints.find(endpoint => endpoint !== sameOrigin)]
+}
+
 const fetchWithFallback = async (request: Request, timeoutMs: number, fallbackUrl?: string) => {
   // Repeating any mutation through a second origin after an ambiguous timeout
   // can duplicate a record. Stable-ID writes are queued and replayed instead.
-  if (!['GET', 'HEAD'].includes(request.method)) fallbackUrl = undefined
+  const method = request.method.toUpperCase()
+  const pathname = new URL(request.url).pathname
+  const canRetryAcrossOrigins = ['GET', 'HEAD'].includes(method)
+    || (method === 'POST' && pathname === '/auth/v1/token')
+  if (!canRetryAcrossOrigins) fallbackUrl = undefined
   let primaryResponse: Response | null = null
   let primaryError: unknown
   try {

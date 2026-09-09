@@ -91,3 +91,32 @@ test('a failed gateway write is queued without repeating it through the direct f
   assert.equal(fallbackPosts, 0)
   assert.equal(await getOfflineQueueCount(userId), 1)
 })
+
+test('authentication retries through the fallback gateway without queueing', async () => {
+  Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: new IDBFactory() })
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { onLine: true } })
+
+  let primaryPosts = 0
+  let fallbackPosts = 0
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    if (new URL(request.url).origin === 'https://primary.example') {
+      primaryPosts += 1
+      return new Response(JSON.stringify({ message: 'temporary' }), { status: 503, headers: { 'content-type': 'application/json' } })
+    }
+    fallbackPosts += 1
+    return new Response(JSON.stringify({ access_token: 'token' }), { status: 200, headers: { 'content-type': 'application/json' } })
+  }) as typeof fetch
+
+  const { createOfflineFetch } = await import(`./offlineTransport.ts?auth-fallback=${Date.now()}`)
+  const offlineFetch = createOfflineFetch('https://primary.example', 'https://fallback.example')
+  const response = await offlineFetch('https://primary.example/auth/v1/token?grant_type=password', {
+    method: 'POST',
+    headers: { apikey: 'public-key', 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'agent@example.com', password: 'secret' }),
+  })
+
+  assert.equal(response.status, 200)
+  assert.equal(primaryPosts, 1)
+  assert.equal(fallbackPosts, 1)
+})

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { filterRowsForUrl, prepareOfflinePayload, rewriteRequestUrl } from './offlineTransport.ts'
+import { filterRowsForUrl, orderEndpointsForOrigin, prepareOfflinePayload, rewriteRequestUrl } from './offlineTransport.ts'
 
 test('Supabase requests keep their path and query when routed through the gateway', () => {
   assert.equal(
@@ -9,6 +9,24 @@ test('Supabase requests keep their path and query when routed through the gatewa
       'https://lumicrm-gateway.denzotrail.workers.dev',
     ),
     'https://lumicrm-gateway.denzotrail.workers.dev/rest/v1/tasks?user_id=eq.u1&select=*',
+  )
+})
+
+test('the Pages deployment uses its same-origin gateway first', () => {
+  assert.deepEqual(
+    orderEndpointsForOrigin('https://worker.example', 'https://lumicrm.pages.dev', 'https://lumicrm.pages.dev'),
+    ['https://lumicrm.pages.dev', 'https://worker.example'],
+  )
+})
+
+test('GitHub Pages and Android keep the Worker as the primary gateway', () => {
+  assert.deepEqual(
+    orderEndpointsForOrigin('https://worker.example', 'https://lumicrm.pages.dev', 'https://lumi-crm.github.io'),
+    ['https://worker.example', 'https://lumicrm.pages.dev'],
+  )
+  assert.deepEqual(
+    orderEndpointsForOrigin('https://worker.example', 'https://lumicrm.pages.dev', 'https://localhost'),
+    ['https://worker.example', 'https://lumicrm.pages.dev'],
   )
 })
 

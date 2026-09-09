@@ -1,8 +1,10 @@
 import { createClient } from '@supabase/supabase-js'
-import { configureOfflineSync, createOfflineFetch } from './offlineTransport'
+import { configureOfflineSync, createOfflineFetch, orderEndpointsForOrigin } from './offlineTransport'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-const supabaseFallbackUrl = import.meta.env.VITE_SUPABASE_FALLBACK_URL
+const [supabaseUrl, supabaseFallbackUrl] = orderEndpointsForOrigin(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_FALLBACK_URL,
+)
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 const supabaseProjectRef = import.meta.env.VITE_SUPABASE_PROJECT_REF
   || new URL(supabaseFallbackUrl || supabaseUrl).hostname.split('.')[0]

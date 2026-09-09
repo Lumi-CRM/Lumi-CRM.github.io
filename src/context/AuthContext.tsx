@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
-import { isExistingEmailSignUp } from '../lib/authGuards'
+import { isExistingEmailSignUp, loginErrorMessage } from '../lib/authGuards'
 import type { ThemeId } from './ThemeContext'
 import { setOfflineSession } from '../lib/offlineTransport'
 import { setOfflineFileSession } from '../lib/offlineFiles'
@@ -274,15 +274,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       const { error: loginError } = await supabase.auth.signInWithPassword({ email, password })
       if (loginError) {
-        setError(loginError.message.toLowerCase().includes('email not confirmed')
-          ? 'Сначала подтвердите почту по ссылке из письма.'
-          : 'Неверный логин или пароль')
+        setError(loginErrorMessage(loginError.message))
         return false
       }
       return true
     } catch (loginError) {
       console.error('Supabase login failed:', loginError)
-      setError('Не удалось подключиться к Supabase')
+      setError(loginErrorMessage(loginError instanceof Error ? loginError.message : String(loginError)))
       return false
     }
   }
