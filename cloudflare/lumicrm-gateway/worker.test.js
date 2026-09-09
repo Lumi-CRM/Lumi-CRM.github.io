@@ -45,9 +45,19 @@ test('gateway forwards bearer credentials only to the fixed upstream, without co
 
 test('gateway permits native origins and rejects foreign browser origins before upstream work', async () => {
   for (const value of [origin, pagesOrigin, 'https://localhost', 'null']) {
-    const response = await handleGatewayRequest(new Request(`${gateway}/rest/v1/tasks`, { method: 'OPTIONS', headers: { origin: value } }))
+    const response = await handleGatewayRequest(new Request(`${gateway}/rest/v1/tasks`, {
+      method: 'OPTIONS',
+      headers: {
+        origin: value,
+        'access-control-request-method': 'POST',
+        'access-control-request-headers': 'apikey,authorization,content-profile,content-type,x-client-info',
+      },
+    }))
     assert.equal(response.status, 204)
     assert.equal(response.headers.get('access-control-allow-origin'), value)
+    const allowedHeaders = response.headers.get('access-control-allow-headers')
+    assert.match(allowedHeaders, /accept-profile/)
+    assert.match(allowedHeaders, /content-profile/)
   }
   const response = await handleGatewayRequest(new Request(`${gateway}/rest/v1/tasks`, { headers: { origin: 'https://attacker.example' } }), () => { throw new Error('Must not fetch') })
   assert.equal(response.status, 403)
