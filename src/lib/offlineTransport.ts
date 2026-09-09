@@ -75,6 +75,8 @@ const SAFE_HEADERS = new Set(['accept', 'content-type', 'content-profile', 'pref
 const nativeFetch = globalThis.fetch.bind(globalThis)
 const READ_TIMEOUT_MS = 2_000
 const WRITE_TIMEOUT_MS = 2_000
+const INTERACTIVE_NETWORK_TIMEOUT_MS = 8_000
+const FILE_NETWORK_TIMEOUT_MS = 30_000
 
 let sessionProvider: (() => Promise<SessionSnapshot>) | null = null
 let syncPromise: Promise<number> | null = null
@@ -462,7 +464,12 @@ export const createOfflineFetch = (supabaseUrl: string, fallbackUrl?: string) =>
   const isSupabaseRequest = supabaseOrigins.has(url.origin)
   const table = isSupabaseRequest ? getTable(url) : null
   if (!table) {
-    if (isSupabaseRequest) return fetchWithFallback(request, 30_000, fallbackUrl)
+    if (isSupabaseRequest) {
+      const timeout = url.pathname.includes('/storage/v1/')
+        ? FILE_NETWORK_TIMEOUT_MS
+        : INTERACTIVE_NETWORK_TIMEOUT_MS
+      return fetchWithFallback(request, timeout, fallbackUrl)
+    }
     return nativeFetch(request)
   }
 
@@ -471,7 +478,7 @@ export const createOfflineFetch = (supabaseUrl: string, fallbackUrl?: string) =>
   if (activeUserId !== userId) return nativeFetch(request)
   const method = request.method.toUpperCase()
   transportConfig = { url: supabaseUrl, fallback: fallbackUrl, apiKey: request.headers.get('apikey') ?? '' }
-  if (networkOnly || method === 'HEAD') return fetchWithFallback(request, 30_000, fallbackUrl)
+  if (networkOnly || method === 'HEAD') return fetchWithFallback(request, INTERACTIVE_NETWORK_TIMEOUT_MS, fallbackUrl)
   if (method === 'POST') {
     const body = await request.clone().text()
     const payload = prepareOfflinePayload(table, body ? JSON.parse(body) : {})

@@ -4,7 +4,8 @@ import { configureOfflineSync, createOfflineFetch } from './offlineTransport'
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const supabaseFallbackUrl = import.meta.env.VITE_SUPABASE_FALLBACK_URL
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-const supabaseProjectRef = new URL(supabaseFallbackUrl || supabaseUrl).hostname.split('.')[0]
+const supabaseProjectRef = import.meta.env.VITE_SUPABASE_PROJECT_REF
+  || new URL(supabaseFallbackUrl || supabaseUrl).hostname.split('.')[0]
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: { storageKey: `sb-${supabaseProjectRef}-auth-token` },
