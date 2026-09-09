@@ -20,6 +20,7 @@ test('Pages serves the SPA entry point for missing HTML navigation routes', asyn
   }), env)
 
   assert.equal(response.status, 200)
+  assert.equal(response.headers.get('x-lumicrm-pages'), 'spa-fallback')
   assert.equal(await response.text(), 'app')
   assert.deepEqual(requests, [
     'https://lumicrm.pages.dev/contacts',

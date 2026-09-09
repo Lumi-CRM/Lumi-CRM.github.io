@@ -8,6 +8,9 @@ export default {
     if (response.status !== 404 || !isHtmlNavigation(request)) return response
 
     const indexUrl = new URL('/', request.url)
-    return env.ASSETS.fetch(new Request(indexUrl, request))
+    const index = await env.ASSETS.fetch(new Request(indexUrl, request))
+    const headers = new Headers(index.headers)
+    headers.set('x-lumicrm-pages', 'spa-fallback')
+    return new Response(index.body, { status: 200, headers })
   },
 }
