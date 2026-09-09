@@ -96,9 +96,17 @@ const fetchWithTimeout = async (request: Request, timeoutMs: number) => {
   const controller = new AbortController()
   const abort = () => controller.abort(request.signal.reason)
   request.signal.addEventListener('abort', abort, { once: true })
-  const timeout = globalThis.setTimeout(() => controller.abort(), timeoutMs)
+  let rejectTimeout: ((reason?: unknown) => void) | null = null
+  const timeoutFailure = new Promise<never>((_, reject) => { rejectTimeout = reject })
+  const timeout = globalThis.setTimeout(() => {
+    controller.abort()
+    rejectTimeout?.(new DOMException('Network request timed out', 'TimeoutError'))
+  }, timeoutMs)
   try {
-    return await nativeFetch(new Request(request, { signal: controller.signal }))
+    return await Promise.race([
+      nativeFetch(new Request(request, { signal: controller.signal })),
+      timeoutFailure,
+    ])
   } finally {
     globalThis.clearTimeout(timeout)
     request.signal.removeEventListener('abort', abort)

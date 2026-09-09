@@ -162,6 +162,8 @@ const authErrorMessage = (message?: string) => {
   return 'Не удалось выполнить запрос. Проверьте данные и подключение.'
 }
 
+const AUTH_STARTUP_TIMEOUT_MS = 5_000
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -227,9 +229,37 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     let mounted = true
 
+    const restoreCachedUser = () => {
+      const lastUserId = window.localStorage.getItem(lastUserStorageKey)
+      const cachedUser = lastUserId ? readUserSnapshot(lastUserId) : null
+      if (!cachedUser) return false
+      activeSessionUserId.current = cachedUser.id
+      setOfflineSession(cachedUser.id)
+      setOfflineFileSession(cachedUser.id)
+      setUser(cachedUser)
+      return true
+    }
+
     const loadSession = async () => {
-      const { data, error: sessionError } = await supabase.auth.getSession()
+      const sessionRequest = supabase.auth.getSession()
+      const startup = await Promise.race([
+        sessionRequest.then(result => ({ result, timedOut: false as const })),
+        new Promise<{ result: null; timedOut: true }>(resolve => {
+          window.setTimeout(() => resolve({ result: null, timedOut: true }), AUTH_STARTUP_TIMEOUT_MS)
+        }),
+      ])
       if (!mounted) return
+      if (startup.timedOut) {
+        restoreCachedUser()
+        setIsLoading(false)
+        void sessionRequest.then(async ({ data, error: sessionError }) => {
+          if (!mounted) return
+          if (sessionError) setError('Не удалось проверить облачную сессию')
+          await loadUser(data.session?.user ?? null)
+        }).catch(error => console.error('Delayed Supabase session recovery failed:', error))
+        return
+      }
+      const { data, error: sessionError } = startup.result
       if (sessionError) setError('Не удалось проверить сессию Supabase')
       await loadUser(data.session?.user ?? null)
       if (mounted) setIsLoading(false)

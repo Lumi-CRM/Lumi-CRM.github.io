@@ -8,6 +8,9 @@ const config: CapacitorConfig = {
     backgroundColor: '#070b14',
   },
   plugins: {
+    CapacitorHttp: {
+      enabled: true,
+    },
     LocalNotifications: {
       smallIcon: 'ic_launcher_foreground',
       iconColor: '#4f46e5',
