@@ -23,7 +23,7 @@ test('Pages serves the SPA entry point for missing HTML navigation routes', asyn
   assert.equal(await response.text(), 'app')
   assert.deepEqual(requests, [
     'https://lumicrm.pages.dev/contacts',
-    'https://lumicrm.pages.dev/index.html',
+    'https://lumicrm.pages.dev/',
   ])
 })
 
