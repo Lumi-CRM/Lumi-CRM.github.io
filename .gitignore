@@ -22,6 +22,7 @@ tmp
 .vite-dev*.log
 .codex-http*.log
 supabase/.temp/
+.wrangler/
 
 # Editor directories and files
 .vscode/*

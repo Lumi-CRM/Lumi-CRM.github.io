@@ -1,10 +1,18 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { onRequest as handlePagesRequest } from './pages.js'
 import { handleGatewayRequest } from './worker.js'
 
 const gateway = 'https://lumicrm-gateway.denzotrail.workers.dev'
 const origin = 'https://lumi-crm.github.io'
 const pagesOrigin = 'https://lumicrm.pages.dev'
+
+test('Pages adapter exposes the gateway on the application origin', async () => {
+  const response = await handlePagesRequest({ request: new Request(`${pagesOrigin}/__health`) })
+  assert.equal(response.status, 200)
+  assert.deepEqual(await response.json(), { ok: true, service: 'LumiCRM gateway' })
+  assert.equal(response.headers.get('x-lumicrm-gateway'), 'cloudflare')
+})
 
 test('gateway rejects host-switch, encoded separator and admin routes without forwarding credentials', async () => {
   for (const path of ['//attacker.example/rest/v1/tasks', '/storage%2fv1/object/x', '/auth/v1/admin/users', '/unknown', '/rest/v1/../../../admin']) {
