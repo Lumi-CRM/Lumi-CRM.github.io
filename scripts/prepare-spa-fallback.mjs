@@ -3,7 +3,12 @@ import { relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const distDirectory = fileURLToPath(new URL('../dist', import.meta.url))
-await copyFile(resolve(distDirectory, 'index.html'), resolve(distDirectory, '404.html'))
+
+// GitHub Pages needs a copied 404.html for client-side routes. Cloudflare Pages
+// provides its own SPA fallback only when a top-level 404.html is absent.
+if (process.env.CF_PAGES !== '1') {
+  await copyFile(resolve(distDirectory, 'index.html'), resolve(distDirectory, '404.html'))
+}
 
 const collectFiles = async (directory) => {
   const entries = await readdir(directory, { withFileTypes: true })
