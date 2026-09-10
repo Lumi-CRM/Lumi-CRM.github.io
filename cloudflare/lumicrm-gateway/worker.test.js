@@ -7,6 +7,19 @@ const gateway = 'https://lumicrm-gateway.denzotrail.workers.dev'
 const origin = 'https://lumi-crm.github.io'
 const pagesOrigin = 'https://lumicrm.pages.dev'
 
+test('network probes return bounded incompressible data without upstream access', async () => {
+  for (const size of [1024, 65536]) {
+    const response = await handleGatewayRequest(new Request(`${gateway}/__health?bytes=${size}`, { headers: { origin } }), () => { throw new Error('No upstream allowed') })
+    assert.equal(response.status, 200)
+    assert.equal((await response.arrayBuffer()).byteLength, size)
+    assert.equal(response.headers.get('access-control-allow-origin'), origin)
+    assert.equal(response.headers.get('cache-control'), 'no-store, no-transform')
+  }
+  for (const size of ['-1', '100000000', 'NaN', '']) {
+    assert.equal((await handleGatewayRequest(new Request(`${gateway}/__health?bytes=${size}`))).status, 400)
+  }
+})
+
 test('Pages adapter exposes the gateway on the application origin', async () => {
   const response = await handlePagesRequest({ request: new Request(`${pagesOrigin}/__health`) })
   assert.equal(response.status, 200)

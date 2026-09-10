@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LumiCRM: проверка соединения</title>
+<style>
+body{font:16px/1.5 system-ui,sans-serif;background:#0b1220;color:#e5eaf2;margin:0;padding:20px;max-width:760px;margin-inline:auto}h1{font-size:25px}button,select,textarea{font:inherit;border-radius:10px;border:1px solid #41516b;padding:12px;background:#172338;color:inherit}button{background:#225bd2;cursor:pointer;margin:12px 8px 12px 0}button:disabled{opacity:.5}textarea{width:100%;box-sizing:border-box;min-height:330px;font-size:13px}li{padding:8px 0;overflow-wrap:anywhere}.ok{color:#70e6b3}.bad{color:#ffaaaa}p{color:#c4cede}
+</style>
+<h1>Проверка связи LumiCRM</h1>
+<p>Проверяет маленькие и большие ответы, соединение с сервером входа и запрос с заголовками приложения. Пароль и данные клиентов не нужны. Отчёт никуда автоматически не отправляется.</p>
+<label>Режим проверки <select id="mode"><option>Без VPN</option><option>С VPN</option></select></label>
+<div><button id="start">Начать проверку</button><button id="copy" disabled>Скопировать отчёт</button></div>
+<p id="status">Открой эту страницу на телефоне. Первый запуск сделай без VPN, второй с VPN. Каждый запуск занимает до двух минут.</p>
+<ol id="results"></ol>
+<label for="report">Отчёт для отправки в чат</label>
+<textarea id="report" readonly></textarea>
+<script>
+// A publishable browser key, identical to the application configuration.
+const apiKey = '__LUMICRM_DIAGNOSTIC_PUBLIC_KEY__';
+const worker = 'https://lumicrm-gateway.denzotrail.workers.dev';
+const pages = 'https://lumicrm.pages.dev';
+const direct = 'https://flwsglkkarikekkopdbu.supabase.co';
+const startButton = document.getElementById('start');
+const copyButton = document.getElementById('copy');
+const report = document.getElementById('report');
+const list = document.getElementById('results');
+const statusLine = document.getElementById('status');
+const mode = document.getElementById('mode');
+const healthHeaders = { apikey: apiKey };
+const appHeaders = { apikey: apiKey, 'accept-profile': 'public', 'x-client-info': 'lumicrm-network-check' };
+const probes = [
+  { name: 'GitHub: контроль загрузки', url: location.origin + '/manifest.webmanifest' },
+  { name: 'Worker: короткий ответ', url: worker + '/__health', json: true },
+  { name: 'Worker: 1 КиБ', url: worker + '/__health?bytes=1024', size: 1024 },
+  { name: 'Worker: 64 КиБ', url: worker + '/__health?bytes=65536', size: 65536 },
+  { name: 'Worker → Supabase: сервер входа', url: worker + '/auth/v1/health', headers: healthHeaders, json: true },
+  { name: 'Worker: заголовки приложения', url: worker + '/auth/v1/health', headers: appHeaders, json: true },
+  { name: 'Pages: короткий ответ', url: pages + '/__health', json: true },
+  { name: 'Pages: 64 КиБ', url: pages + '/__health?bytes=65536', size: 65536 },
+  { name: 'Pages → Supabase: сервер входа', url: pages + '/auth/v1/health', headers: healthHeaders, json: true },
+  { name: 'Supabase напрямую: сервер входа', url: direct + '/auth/v1/health', headers: healthHeaders, json: true },
+];
+async function probe(item) {
+  const controller = new AbortController();
+  const started = performance.now();
+  const result = { name: item.name, host: new URL(item.url).hostname, status: null, bytes: 0, headersMs: null, elapsedMs: null, ok: false };
+  let reader;
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  try {
+    const url = new URL(item.url);
+    url.searchParams.set('probe', crypto.randomUUID());
+    const response = await fetch(url, { cache: 'no-store', credentials: 'omit', headers: item.headers, signal: controller.signal });
+    result.status = response.status;
+    result.headersMs = Math.round(performance.now() - started);
+    reader = response.body.getReader();
+    const parts = [];
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      result.bytes += chunk.value.byteLength;
+      if (result.bytes > 131072) throw new Error('Ответ превышает лимит проверки');
+      parts.push(chunk.value);
+    }
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    if (item.size && result.bytes !== item.size) throw new Error('Неполный ответ: ожидалось ' + item.size + ' байт');
+    if (item.json) {
+      const content = new Uint8Array(result.bytes);
+      let offset = 0;
+      for (const part of parts) { content.set(part, offset); offset += part.byteLength; }
+      JSON.parse(new TextDecoder().decode(content));
+    }
+    result.ok = true;
+  } catch (error) {
+    result.error = controller.signal.aborted ? 'Таймаут 10 секунд' : String(error.message || error).slice(0, 160);
+    controller.abort();
+    if (reader) await reader.cancel().catch(() => {});
+  } finally {
+    clearTimeout(timeout);
+    result.elapsedMs = Math.round(performance.now() - started);
+  }
+  return result;
+}
+startButton.onclick = async () => {
+  startButton.disabled = true; copyButton.disabled = true; mode.disabled = true;
+  list.replaceChildren();
+  const run = { diagnosticVersion: 1, time: new Date().toISOString(), mode: mode.value, results: [] };
+  try {
+    for (const item of probes) {
+      statusLine.textContent = 'Проверка ' + (run.results.length + 1) + '/' + probes.length + ': ' + item.name;
+      const result = await probe(item);
+      run.results.push(result);
+      const row = document.createElement('li');
+      row.className = result.ok ? 'ok' : 'bad';
+      row.textContent = item.name + ': ' + (result.ok ? 'ОК' : result.error) + ', ' + result.bytes + ' байт, ' + result.elapsedMs + ' мс';
+      list.append(row);
+      report.value = JSON.stringify(run, null, 2);
+    }
+    statusLine.textContent = 'Проверка завершена. Скопируй отчёт и отправь его в чат.';
+  } finally {
+    startButton.disabled = false; copyButton.disabled = false; mode.disabled = false;
+  }
+};
+copyButton.onclick = async () => {
+  try { await navigator.clipboard.writeText(report.value); statusLine.textContent = 'Отчёт скопирован.'; }
+  catch { report.focus(); report.select(); statusLine.textContent = 'Выделенный отчёт можно скопировать вручную.'; }
+};
+</script>
+</html>

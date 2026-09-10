@@ -104,7 +104,17 @@ const fetchWithTimeout = async (request: Request, timeoutMs: number) => {
   }, timeoutMs)
   try {
     return await Promise.race([
-      nativeFetch(new Request(request, { signal: controller.signal })),
+      (async () => {
+        const response = await nativeFetch(new Request(request, { signal: controller.signal }))
+        // fetch resolves on headers. A stalled body must remain inside the
+        // deadline too, otherwise JSON decoding can hang indefinitely.
+        const body = response.body ? await response.arrayBuffer() : null
+        const buffered = new Response(body, {
+          status: response.status, statusText: response.statusText, headers: response.headers,
+        })
+        Object.defineProperty(buffered, 'url', { value: response.url })
+        return buffered
+      })(),
       timeoutFailure,
     ])
   } finally {

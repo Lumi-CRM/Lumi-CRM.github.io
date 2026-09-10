@@ -39,6 +39,19 @@ export const handleGatewayRequest = async (request, upstreamFetch = fetch) => {
   if (origin && !ALLOWED_ORIGINS.has(origin)) return reply('Origin is not allowed', 403)
   if (!ALLOWED_METHODS.has(request.method)) return reply('Method is not allowed', 405)
   if (incoming.pathname === '/__health' && ['GET', 'HEAD'].includes(request.method)) {
+    // Bounded synthetic data tests transport beyond a tiny health response.
+    // It contains no office data and never contacts Supabase.
+    if (incoming.searchParams.has('bytes')) {
+      const size = Number(incoming.searchParams.get('bytes'))
+      if (![1024, 65536].includes(size)) return reply('Unsupported probe size', 400)
+      const bytes = crypto.getRandomValues(new Uint8Array(size))
+      const headers = responseHeaders(request, {
+        'content-type': 'application/octet-stream',
+        'content-length': String(size),
+      })
+      headers.set('cache-control', 'no-store, no-transform')
+      return new Response(request.method === 'HEAD' ? null : bytes, { headers })
+    }
     return new Response(request.method === 'HEAD' ? null : JSON.stringify({ ok: true, service: 'LumiCRM gateway' }), {
       headers: responseHeaders(request, { 'content-type': 'application/json' }),
     })

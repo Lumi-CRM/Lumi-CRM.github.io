@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { isExistingEmailSignUp, loginErrorMessage } from './authGuards.ts'
+import { isExistingEmailSignUp, isTemporarySessionError, loginErrorMessage } from './authGuards.ts'
+
+test('offline session recovery distinguishes network failures from revoked credentials', () => {
+  assert.equal(isTemporarySessionError({ name: 'AuthRetryableFetchError' }), true)
+  assert.equal(isTemporarySessionError({ status: 503 }), true)
+  assert.equal(isTemporarySessionError({ status: 400 }), false)
+  assert.equal(isTemporarySessionError({ status: 401 }), false)
+  assert.equal(isTemporarySessionError(null), false)
+})
 
 test('detects Supabase response for an already registered email', () => {
   assert.equal(isExistingEmailSignUp({ identities: [] }), true)

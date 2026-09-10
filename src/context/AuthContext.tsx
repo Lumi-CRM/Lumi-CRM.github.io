@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
-import { supabase } from '../lib/supabase'
-import { isExistingEmailSignUp, loginErrorMessage } from '../lib/authGuards'
+import { authStorageKey, supabase } from '../lib/supabase'
+import { isExistingEmailSignUp, isTemporarySessionError, loginErrorMessage } from '../lib/authGuards'
 import type { ThemeId } from './ThemeContext'
 import { setOfflineSession } from '../lib/offlineTransport'
 import { setOfflineFileSession } from '../lib/offlineFiles'
@@ -230,9 +230,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     let mounted = true
 
     const restoreCachedUser = () => {
-      const lastUserId = window.localStorage.getItem(lastUserStorageKey)
-      const cachedUser = lastUserId ? readUserSnapshot(lastUserId) : null
-      if (!cachedUser) return false
+      let storedSession: { user?: { id?: string }; refresh_token?: string } | null = null
+      try {
+        storedSession = JSON.parse(window.localStorage.getItem(authStorageKey) || 'null')
+      } catch { return false }
+      const lastUserId = storedSession?.user?.id
+      const cachedUser = lastUserId && storedSession?.refresh_token ? readUserSnapshot(lastUserId) : null
+      if (!cachedUser || cachedUser.id !== lastUserId) return false
       activeSessionUserId.current = cachedUser.id
       setOfflineSession(cachedUser.id)
       setOfflineFileSession(cachedUser.id)
@@ -254,20 +258,38 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setIsLoading(false)
         void sessionRequest.then(async ({ data, error: sessionError }) => {
           if (!mounted) return
-          if (sessionError) setError('Не удалось проверить облачную сессию')
+          if (sessionError) {
+            setError('Не удалось проверить облачную сессию')
+            if (isTemporarySessionError(sessionError) && restoreCachedUser()) return
+          }
           await loadUser(data.session?.user ?? null)
         }).catch(error => console.error('Delayed Supabase session recovery failed:', error))
         return
       }
       const { data, error: sessionError } = startup.result
-      if (sessionError) setError('Не удалось проверить сессию Supabase')
+      if (sessionError) {
+        setError('Не удалось проверить облачную сессию')
+        if (isTemporarySessionError(sessionError) && restoreCachedUser()) {
+          setIsLoading(false)
+          return
+        }
+      }
       await loadUser(data.session?.user ?? null)
       if (mounted) setIsLoading(false)
     }
 
-    void loadSession()
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    void loadSession().catch(() => {
       if (!mounted) return
+      restoreCachedUser()
+      setError('Не удалось проверить облачную сессию')
+      setIsLoading(false)
+    })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return
+      if (event === 'INITIAL_SESSION' && !session && restoreCachedUser()) {
+        setIsLoading(false)
+        return
+      }
       if (!session) {
         activeSessionUserId.current = null
         setOfflineSession(null)

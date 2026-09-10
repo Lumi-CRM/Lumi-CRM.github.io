@@ -2,6 +2,9 @@ interface SignUpUserLike {
   identities?: unknown[] | null
 }
 
+export const isTemporarySessionError = (error: { name?: string; status?: number } | null | undefined) =>
+  Boolean(error && (error.name === 'AuthRetryableFetchError' || error.status === 0 || (error.status ?? 0) >= 500))
+
 export const isExistingEmailSignUp = (user: SignUpUserLike | null | undefined) => (
   Boolean(user) && Array.isArray(user?.identities) && user.identities.length === 0
 )

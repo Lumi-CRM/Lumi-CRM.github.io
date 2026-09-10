@@ -7,6 +7,35 @@ const jwtFor = (userId: string) => {
   return `${encode({ alg: 'none' })}.${encode({ sub: userId })}.signature`
 }
 
+test('a response that stalls after headers times out and uses the read fallback', async () => {
+  Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: new IDBFactory() })
+  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { onLine: true } })
+  let fallbackCalls = 0
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    if (new URL(request.url).hostname === 'stalled.example') {
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('['))
+          request.signal.addEventListener('abort', () => controller.error(request.signal.reason), { once: true })
+        },
+      }), { headers: { 'content-type': 'application/json' } })
+    }
+    fallbackCalls++
+    return Response.json([{ id: 'remote-task', user_id: 'body-test' }])
+  }) as typeof fetch
+  const { createOfflineFetch, setOfflineSession } = await import(`./offlineTransport.ts?body-timeout=${Date.now()}`)
+  setOfflineSession('body-test')
+  const fetcher = createOfflineFetch('https://stalled.example', 'https://working.example')
+  const started = Date.now()
+  const response = await fetcher('https://stalled.example/rest/v1/tasks?user_id=eq.body-test', {
+    headers: { authorization: `Bearer ${jwtFor('body-test')}` },
+  })
+  assert.deepEqual(await response.json(), [{ id: 'remote-task', user_id: 'body-test' }])
+  assert.equal(fallbackCalls, 1)
+  assert.ok(Date.now() - started < 5000)
+})
+
 test('a queued call remains visible after a reload and is replayed once', async () => {
   Object.defineProperty(globalThis, 'indexedDB', { configurable: true, value: new IDBFactory() })
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { onLine: true } })
