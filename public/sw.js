@@ -1,4 +1,4 @@
-const CACHE_NAME = 'lumicrm-shell-v26'
+const CACHE_NAME = 'lumicrm-shell-v27'
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon-192-v2.png', '/icon-512-v2.png']
 
 self.addEventListener('install', event => {
@@ -28,7 +28,12 @@ self.addEventListener('activate', event => {
 })
 
 self.addEventListener('fetch', event => {
-  if (event.request.method !== 'GET' || new URL(event.request.url).origin !== self.location.origin) return
+  const url = new URL(event.request.url)
+  if (event.request.method !== 'GET' || url.origin !== self.location.origin) return
+  // Authenticated API caching belongs to the user-scoped offline transport.
+  // The diagnostic document must never replace the cached application shell.
+  if (/^\/(auth|rest|storage|realtime|functions)\/v1(?:\/|$)/.test(url.pathname)
+    || url.pathname === '/__health' || url.pathname === '/network-check.html') return
 
   const destination = event.request.destination
   const mustRevalidate = event.request.mode === 'navigate'
